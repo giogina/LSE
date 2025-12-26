@@ -84,8 +84,8 @@ def plot_wavefn_and_local_energy(
         if clip_percentiles is not None:
             lo, hi = np.nanpercentile(Eloc, clip_percentiles)
             Eloc = np.clip(Eloc, lo, hi)
-        else:
-            Eloc = np.clip(Eloc, -3.0, 0.0)
+        # else:
+        #     Eloc = np.clip(Eloc, -3.0, 0.0)
         return Eloc
 
     def redraw(_=None):

@@ -4,7 +4,7 @@ from distutils.command.sdist import sdist
 import numpy as np
 from scipy.linalg import eig
 from plot import plot_wavefn_and_local_energy
-from util import inspect_small_overlap_eigenvectors, diag_rescale_generalized
+from util import *
 
 # from r1_matrix import *
 from r1_matrix_LP import *
@@ -38,33 +38,6 @@ def power_table(x, p_max):
 
 import numpy as np
 
-
-def build_R2(rA2_vals, rB2_vals, r2_dependencies):
-    """
-    rA2_vals: shape (N,)
-    rB2_vals: shape (N,)
-    r2_dependencies: shape (3, M)
-        row 1 ignored for now (r12 exponent)
-        row 2 = exponent for rA2
-        row 3 = exponent for rB2
-
-    returns R2: shape (N, M)
-    """
-
-    # Extract exponent rows
-    expA = r2_dependencies[1]  # shape (M,)
-    expB = r2_dependencies[2]  # shape (M,)
-
-    # Compute powers using broadcasting
-    # rA2_vals[:,None] gives shape (N,1)
-    # expA[None,:]   gives shape (1,M)
-    RA = rA2_vals[:, None] ** expA[None, :]
-    RB = rB2_vals[:, None] ** expB[None, :]
-
-    # Elementwise multiplication produces (N, M)
-    return RA * RB
-
-
 # Todo: Ideas:
 #  * treat rAB as the scaling length (exponent saved separately) - then use Kronecker products to quickly assemble enhanced S&H
 #  * Also save HP components of alpha^2, alpha, 1 separately, AND then - assemble H with different alpha values directly to test for optimal alpha!
@@ -76,31 +49,32 @@ def build_R2(rA2_vals, rB2_vals, r2_dependencies):
 def build_SH_xyz_separate_V_fast(
     # alpha = 0.95/1.4,
     alpha = 0.75,
-    beta = 4.5,  # 0.1: quite alright (epsilon[0] := 0.191, no longer duplicated); 0.2 (really well behaving functions; epsilon[0] := 0.1443, all solution functions have about the same shape)
+    beta = 0.0,  # 0.1: quite alright (epsilon[0] := 0.191, no longer duplicated); 0.2 (really well behaving functions; epsilon[0] := 0.1443, all solution functions have about the same shape)
     delta = 0.0,  # 0.5 worse than 0.1  # Careful - not currently implemented in maple
     Rmax=6,
     rStep=0.2,
     R1max=12,  # Maximal radius for radial scanning of rA1
     sigma=3  # Exponent of the rA1 sampling distribution: u1 in [0.1, sqrt(R1max)], rA1=u1^sigma (higher sigma => more points near 0)
 ):
+    # E[0] := -1.174814627652896: epsilon[0] := 328.86396264265125:
 
     # Coefficients not really getting smaller to the end, again.
-    # cond: 49534309.11880426
-    # E[0] := -1.1624578934895051: epsilon[0] := 0.11185855950667786:
 
-    # cond: 49534309.11880426
-    # E[0] := -1.1624578934895051: epsilon[0] := 0.11185855950667786:
+    BO = True
 
     # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i)
     h_max = 5
     k_max = 2
     n_max = 2
-    m_max = 3
-    ij_max = 3
-    total_max = 5
+    m_max = 4
+    ij_max = 4
+    total_max = 4
+
+    if BO:
+        h_max = 0  # avoid rAB dependence
 
     # E[0] := -1.1627930436517466: epsilon[0] := 2.9937579205389784e-05
-    # alpha = 0.75, beta=0.1, gamma=0
+    # alpha = 0.75, beta=0, gamma=0
     # h_max = 2
     # k_max = 2
     # n_max = 2
@@ -166,9 +140,14 @@ def build_SH_xyz_separate_V_fast(
     y2s = Y2s.ravel()
     z2s = Z2s.ravel()
 
-    M = 1836.153
-    M1M = (M+1) / M
-    M_inv = 1 / M
+    if BO:
+        M1M = 1
+        M_inv = 0
+    else:
+        M = 1836.153
+        M1M = (M+1) / M
+        M_inv = 1 / M
+
 
     start = time.time()
 
@@ -178,13 +157,24 @@ def build_SH_xyz_separate_V_fast(
     test_A = None
     test_B = None
 
-    for rAB in frange(0.8, 2.2, 0.2):
+    # 1.3: -1.172233875122012
+    # 1.35 -1.1719523463883157
+    # 1.38 -1.1746696369875254
+    # 1.4: -1.1747651120383216
+    # 1.41 -1.1747227721042222
+    # 1.43 -1.1745027866756477
+    # 1.45: -1.1741347875229644:
+    # 1.5: -1.172763095219384
+
+    abRange = frange(1.41, 1.41, 0.2) if BO else frange(0.4, 3.0, 0.2)
+
+    for rAB in abRange:
         xB = rAB/2
         rA2_vals = np.sqrt((x2s + rAB / 2) ** 2 + y2s ** 2 + z2s ** 2)
         rB2_vals = np.sqrt((x2s - rAB / 2) ** 2 + y2s ** 2 + z2s ** 2)
 
         r2_dependencies = np.asarray(r2deps)
-        R2 = build_R2(rA2_vals, rB2_vals, r2_dependencies)  # requires: MInfTest2.mw codeGeneration (bottom of file)
+        # R2 = build_R2(rA2_vals, rB2_vals, r2_dependencies)  # requires: MInfTest2.mw codeGeneration (bottom of file)
 
         for u1 in frange(rStep/2, np.sqrt(R1max), rStep):
             rA1 = u1**sigma
@@ -338,7 +328,7 @@ def build_SH_xyz_separate_V_fast(
                 B *= (mu_part_ij + mu_part_ji)
                 A += B * potential[:, None]
 
-                if abs(rAB-1.4) < 0.0001 and (rA1-4) < 0.6 and (theta-2*np.pi/3) < 0.2:
+                if (rA1-4) < 0.6 and (theta-2*np.pi/3) < 0.2 and (BO or abs(rAB-1.4) < 0.0001):
                     test_A = A
                     test_B = B  # Vectors of rows HP and P for later comparison of local energy deviation
 
@@ -346,34 +336,6 @@ def build_SH_xyz_separate_V_fast(
                 H += ( B.T @ A ) * weight
 
                 nrP += 1
-        #
-        #             r12_vals = np.sqrt((x1-x2s)**2+(y1-y2s)**2+z2s**2)   # vector of r12 values for all e2 positions
-        #             exp_factors = np.exp(-alpha*(rA1+rB1+rA2_vals+rB2_vals)-beta*rAB-delta*r12_vals)  # vector of exponential factor for all e2 positions
-        #             potential = potential_ri(rAB, rA1, rB1, rA2_vals, rB2_vals, r12_vals)
-        #
-        #             r12_pows = r12_vals[:, None] ** r2_dependencies[0][None, :]  # Multiply columns of R2 contributions with corresponding r12 values
-        #             R2_r12 = R2 * r12_pows
-        #             A_alpha = (R2_r12 @ HR1) * exp_factors[:, None]  # Use inner product of r1 and r2 dependent monomial pieces to assemble HP elements
-        #             B_alpha = (R2_r12 @ PR1) * exp_factors[:, None]
-        #             A_alpha += B_alpha * potential[:, None]
-        #
-        #             A_blocks.append(A_alpha)  # (N2, ncol_alpha)
-        #             B_blocks.append(B_alpha)
-        #
-        #         A = np.concatenate(A_blocks, axis=1)
-        #         B = np.concatenate(B_blocks, axis=1)
-        #
-        #         if abs(rAB-1.4) < 0.0001 and (rA1-4) < 0.6 and (theta-2*np.pi/3) < 0.2:
-        #             test_A = A
-        #             test_B = B  # Vectors of rows HP and P for later comparison of local energy deviation
-        #
-        #         S += ( B.T @ B ) * weight
-        #         H += ( B.T @ A ) * weight
-        #         nrP += 1
-        #
-        # Sdict[rAB] = S
-        # Hdict[rAB] = H
-
     print(nrP)
     print(time.time() - start)
     return S, H, test_A, test_B, x2_vals, y2_vals, z2_vals, basis_idx
@@ -409,7 +371,7 @@ print((eigvals))
 print("min eig:", np.abs(eigvals).min())
 print("max eig:", np.abs(eigvals).max())
 print("cond:", eigvals.max() / eigvals.min())
-#
+
 # inspect_small_overlap_eigenvectors(S)
 
 h_idx = basis_idx[:, 0]
@@ -424,6 +386,8 @@ idx = np.argsort(E)
 E = np.real(E[idx])
 C = np.real(C[:, idx])
 
+
+
 i = 0
 while i < len(E) and E[i] < 0:
     ci = C[:, i]
@@ -436,6 +400,23 @@ while i < len(E) and E[i] < 0:
           f"C[{i}] := {[f'{float(x)} * rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}' for ii, x in enumerate(ci)]}")
     i += 1
 
+
+# for rc in [1e-10, 1e-12, 1e-14, 1e-15]:
+#     E, C, info = solve_gen_eig_deflated(H, S, rcond=rc, assume_H_symmetric=False)
+#     print(rc, info["K"], np.real(E[:5]), np.max(info["residual_rel"][:5]))
+# for rc in [1e-10, 1e-12, 1e-14, 1e-15]:
+#     E, C, info = solve_gen_eig_deflated(H, S, rcond=rc, assume_H_symmetric=True)
+#     print(rc, info["K"], np.real(E[:5]), np.max(info["residual_rel"][:5]))
+
+lam, x = residual_minimize_generalized(H, S, -1.17445, C[:, 0], iters=8, rcond=1e-12, damping=0.5, ridge=0.0)
+print(lam)
+
+plot_wavefn_and_local_energy(
+    test_A, test_B, x[None, :], np.array([lam]),
+    x2_vals, y2_vals, z2_vals,
+    eps=1e-12,
+    clip_percentiles = (1, 99)
+)
 plot_wavefn_and_local_energy(
     test_A, test_B, C, E,
     x2_vals, y2_vals, z2_vals,
