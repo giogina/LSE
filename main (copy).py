@@ -52,7 +52,7 @@ def build_R2(rA2_vals, rB2_vals, r2_dependencies):
 
     # Elementwise multiplication produces (N, M)
     return RA * RB
-
+# R2, each row: [f(rA2, rB2) = rA2^i*rB2^j for each n=1..N; i,j depend on ansatz function index m]
 
 # Todo: Ideas:
 #  * treat rAB as the scaling length (exponent saved separately) - then use Kronecker products to quickly assemble enhanced S&H
@@ -109,7 +109,7 @@ def build_SH_xyz_separate_V_fast(
         for u1 in frange(rStep/2, np.sqrt(R1max), rStep):
             rA1 = u1**sigma
             weight=rA1**(2-1/sigma)
-            print("rAB =", rAB, "rA1 =", rA1, nrP)
+            print("rAB =", rAB, "rA1 =", rA1, nrP, time.time() - start)
             for theta in np.linspace(0, 2*np.pi, 16, endpoint=False): # Slight offset to avoid hitting nucleus B
                 x1 = rA1*np.cos(theta)-xB
                 y1 = rA1*np.sin(theta)

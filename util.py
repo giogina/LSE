@@ -3,6 +3,150 @@ from scipy.linalg import eig
 from scipy.linalg import eigh
 import scipy.linalg as la
 
+def _rayleigh_quotient(H, S, x):
+    num = x.conj().T @ (H @ x)
+    den = x.conj().T @ (S @ x)
+    return (num / den).item()
+
+def _snorm(S, x):
+    v = x.conj().T @ (S @ x)
+    # If S is indefinite/noisy, v might go tiny/negative; fall back safely.
+    if np.iscomplexobj(v):
+        v = v.real
+    if v <= 0:
+        return np.linalg.norm(x)
+    return float(np.sqrt(v))
+
+def make_start_vector_from_topleft(H, S, k=100, sigma=None, which="closest"):
+    """
+    Build x0 by solving the generalized eigenproblem on the top-left k×k block.
+    Returns x0 (length n), lam0 (estimated eigenvalue from the block).
+    which:
+      - "closest": pick eigenvalue closest to sigma (requires sigma)
+      - "min": pick smallest real eigenvalue
+      - "max": pick largest real eigenvalue
+    """
+    import scipy.linalg as la
+
+    n = H.shape[0]
+    Hk = np.array(H[:k, :k], copy=False)
+    Sk = np.array(S[:k, :k], copy=False)
+
+    # Dense generalized eig on small block
+    Ek, Ck = la.eig(Hk, Sk)
+
+    # Decide which eigenpair to use
+    if which == "closest":
+        if sigma is None:
+            raise ValueError("sigma must be provided when which='closest'")
+        idx = np.argmin(np.abs(Ek - sigma))
+    elif which == "min":
+        idx = np.argmin(np.real(Ek))
+    elif which == "max":
+        idx = np.argmax(np.real(Ek))
+    else:
+        raise ValueError("which must be 'closest', 'min', or 'max'")
+
+    lam0 = Ek[idx]
+    ck = Ck[:, idx]
+
+    # Normalize the small vector in S-norm (if possible)
+    nk = _snorm(Sk, ck)
+    if nk == 0 or not np.isfinite(nk):
+        ck = ck / (np.linalg.norm(ck) + 1e-300)
+    else:
+        ck = ck / nk
+
+    # Embed into full vector
+    x0 = np.zeros(n, dtype=complex if (np.iscomplexobj(H) or np.iscomplexobj(S) or np.iscomplexobj(ck)) else float)
+    x0[:k] = ck
+    return x0, lam0
+
+def shift_invert_target_eigpair(
+    H, S, sigma,
+    x0,
+    max_iter=50,
+    tol=1e-10,
+    update_sigma=False,
+    regularize_mu=0.0,
+    normalize="S",   # "S" or "2"
+    verbose=True,
+):
+    """
+    Target eigenpair near sigma for H x = lambda S x by shift-invert inverse iteration.
+
+    Iteration:
+      Solve (H - sigma S + mu I) y = S x
+      x <- y / ||y||
+      lambda <- (x^T H x) / (x^T S x)
+
+    If update_sigma=True, sets sigma <- lambda each iteration (Rayleigh quotient iteration style).
+    That can converge very fast near the solution, but can also destabilize if sigma is not close enough.
+    """
+    import scipy.linalg as la
+
+    H = np.asarray(H)
+    S = np.asarray(S)
+    n = H.shape[0]
+    assert H.shape == (n, n) and S.shape == (n, n)
+
+    x = np.asarray(x0).astype(complex if (np.iscomplexobj(H) or np.iscomplexobj(S) or np.iscomplexobj(x0)) else float)
+    # Basic normalization
+    if normalize == "S":
+        nx = _snorm(S, x)
+    else:
+        nx = np.linalg.norm(x)
+    x = x / (nx + 1e-300)
+
+    lam = _rayleigh_quotient(H, S, x)
+    if verbose:
+        r = H @ x - lam * (S @ x)
+        print(f"[init]  sigma={sigma}  lam={lam}  ||r||2={np.linalg.norm(r):.3e}")
+
+    for it in range(1, max_iter + 1):
+        # Build/factor shifted matrix
+        sig = lam if update_sigma else sigma
+        K = H - sig * S
+        if regularize_mu != 0.0:
+            K = K + regularize_mu * np.eye(n, dtype=K.dtype)
+
+        # LU factorization (dense)
+        lu, piv = la.lu_factor(K)
+
+        # Solve (H - sig S) y = S x
+        rhs = S @ x
+        y = la.lu_solve((lu, piv), rhs)
+
+        # Normalize
+        if normalize == "S":
+            ny = _snorm(S, y)
+        else:
+            ny = np.linalg.norm(y)
+        x = y / (ny + 1e-300)
+
+        # Update eigenvalue estimate
+        lam_new = _rayleigh_quotient(H, S, x)
+
+        # Residual
+        r = H @ x - lam_new * (S @ x)
+        rnorm = np.linalg.norm(r)
+
+        if verbose:
+            print(f"[{it:02d}] sig={sig}  lam={lam_new}  ||r||2={rnorm:.3e}")
+
+        # Convergence test (residual-based)
+        if rnorm <= tol:
+            return lam_new, x, {"iters": it, "residual_norm": rnorm}
+
+        # Stagnation / nan guard
+        if not np.isfinite(rnorm) or not np.isfinite(lam_new.real) or not np.isfinite(lam_new.imag):
+            return lam_new, x, {"iters": it, "residual_norm": rnorm, "failed": True}
+
+        lam = lam_new
+
+    return lam, x, {"iters": max_iter, "residual_norm": rnorm, "converged": False}
+
+
 def s_deflate(H, S, rcond=1e-12, symmetrize=True):
     if symmetrize:
         H = 0.5*(H + H.T)
