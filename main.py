@@ -27,16 +27,43 @@ def frange(start, stop, step):
             x += step
 
 
-def power_table(x, p_max):
-    # Returns matrix with x^n for columns n=0..p_max
+# def power_table(x, p_max):
+#     # Returns matrix with x^n for columns n=0..p_max
+#     x = np.asarray(x, dtype=np.float64)
+#     out = np.empty((x.shape[0], p_max+1), dtype=np.float64) if x.ndim else np.empty((p_max+1,), dtype=np.float64)
+#     out[..., 0] = 1.0
+#     for e in range(1, p_max+1):
+#         out[..., e] = out[..., e-1] * x
+#     return out
+
+
+def power_table(x, p_max, p_min=0):
     x = np.asarray(x, dtype=np.float64)
-    out = np.empty((x.shape[0], p_max+1), dtype=np.float64) if x.ndim else np.empty((p_max+1,), dtype=np.float64)
+
+    n_pos = p_max + 1              # includes 0
+    n_neg = -p_min if p_min < 0 else 0
+    n_cols = n_pos + n_neg
+
+    out = np.empty((x.shape[0], n_cols) if x.ndim else (n_cols,), dtype=np.float64)
+
+    # s^0
     out[..., 0] = 1.0
-    for e in range(1, p_max+1):
-        out[..., e] = out[..., e-1] * x
+
+    # s^1 ... s^p_max
+    for e in range(1, p_max + 1):
+        out[..., e] = out[..., e - 1] * x
+
+    # s^p_min ... s^-1
+    if p_min < 0:
+        col = p_max + 1
+        out[..., col] = x ** p_min
+        for e in range(p_min + 1, 0):
+            out[..., col + 1] = out[..., col] * x
+            col += 1
+
     return out
 
-import numpy as np
+
 
 # Todo: Ideas:
 #  * treat rAB as the scaling length (exponent saved separately) - then use Kronecker products to quickly assemble enhanced S&H
@@ -65,10 +92,11 @@ def build_SH_xyz_separate_V_fast(
     # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
     h_max = 6
     k_max = 5
+    n_min = -k_max  # for power table
     n_max = 6
     m_max = 6
     ij_max = 6
-    total_max = 4
+    total_max = 5
 
     # alpha_grid = np.array([0.75, 2, 5])
     # alpha_thrs = np.array([2, 4, 6])  #E[0] := -1.1742607464862156:
@@ -87,10 +115,11 @@ def build_SH_xyz_separate_V_fast(
     beta_grid = np.array([0])
     beta_thrs = np.array([])
     delta_grid = np.array([0])
-    delta_thrs = np.array([])  # TODO: adjust the code to work like the previous maple-export logic (measure times for different parts first - is alpha/beta/gamma grading the culprit?)
+    delta_thrs = np.array([])
 
 # TODO: Recover logic used by the maple exports previously.
 #  All inv_s etc are multiplied by n etc such that there are never negative powers => May as well expand them and return to r1's, r2's, r12-dependent logic.
+
     # (Speedup factor 1.5?)
 
     if BO:  # Reset if not used
@@ -116,7 +145,7 @@ def build_SH_xyz_separate_V_fast(
     rows = []
     for h in frange(0, h_max, 1):
         for k in frange(0, k_max, 1):
-            for n in frange(0, n_max, 1):
+            for n in frange(0, n_max, 1):  # careful: Whenever using negative indices, adjust power_table call accordingly.
                 for m in range(m_max + 1):
                     for i in range(ij_max + 1):
                         for j in range(i + 1):
@@ -129,7 +158,7 @@ def build_SH_xyz_separate_V_fast(
                             ai = np.searchsorted(alpha_thrs, t, side="left")  # Smallest index for which t<=alpha_thrs[ai]
                             bi = np.searchsorted(beta_thrs, t, side="left")
                             di = np.searchsorted(delta_thrs, k, side="left")
-                            rows.append((h, k, n, m, i, j, ai, bi, di))
+                            rows.append((h, k, n-k, m, i, j, ai, bi, di))
 
     basis_idx = np.array(rows, dtype=np.int16)
 
@@ -243,7 +272,7 @@ def build_SH_xyz_separate_V_fast(
         for u1 in frange(rStep/2, np.sqrt(R1max), rStep):
             rA1 = u1**sigma
             weight=rA1**(2-1/sigma)
-            print("rAB =", rAB, "rA1 =", rA1, nrP, time.time() - start)
+            print("rAB =", rAB, "rA1 =", rA1, nrP, f"{int(10*(time.time() - start))/10}s")
             for theta in np.linspace(0, 2*np.pi, 16, endpoint=False): # Slight offset to avoid hitting nucleus B
                 x1 = rA1*np.cos(theta)-xB
                 y1 = rA1*np.sin(theta)
@@ -422,7 +451,7 @@ def build_SH_xyz_separate_V_fast(
                 # Symmetry requirements: m even, i+j even, symmetrize to phi_i_j+phi_j_i.
 
                 r12_p = power_table(r12, k_max)
-                s_p = power_table(s, n_max)
+                s_p = power_table(s, n_max, n_min)
                 t_p = power_table(t, m_max)
                 mu1_p = power_table(mu1, ij_max)
 
