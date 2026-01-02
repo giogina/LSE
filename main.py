@@ -89,14 +89,27 @@ def build_SH_xyz_separate_V_fast(
 
     BO = True
 
+    # No giant peak at the electron: E[0] := -1.1745053541808201; BUT not very smooth at large r
+    #     h_max = 6
+    #     k_max = 5
+    #     n_max = 6
+    #     m_max = 6
+    #     ij_max = 6
+    #     n_min = 0  # for power table
+    #     total_max = 6
+    # alpha_grid = np.array([0.74, 1.2, 2.0, 2.5])
+    # alpha_thrs = np.array([2, 4, 6])               with ai = np.searchsorted(alpha_thrs, n, side="left")
+
+
     # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
     h_max = 6
-    k_max = 5
-    n_min = -k_max  # for power table
+    k_max = 6
     n_max = 6
     m_max = 6
     ij_max = 6
-    total_max = 5
+    n_min = 0  # for power table
+    # n_min = -k_max-m_max  # for power table
+    total_max = 7
 
     # alpha_grid = np.array([0.75, 2, 5])
     # alpha_thrs = np.array([2, 4, 6])  #E[0] := -1.1742607464862156:
@@ -111,14 +124,19 @@ def build_SH_xyz_separate_V_fast(
     # alpha_grid = np.array([0.74, 1.2, 2.0, 2.5])
     # alpha_thrs = np.array([2, 4, 5])  # E[0] := -1.174466890469607
     alpha_grid = np.array([0.74, 1.2, 2.0, 2.5])
-    alpha_thrs = np.array([2, 4, 5])  # degrees up to which each alpha applies (always one shorter than _grid)
+    alpha_thrs = np.array([2, 4, 6])  # degrees up to which each alpha applies (always one shorter than _grid)
     beta_grid = np.array([0])
     beta_thrs = np.array([])
     delta_grid = np.array([0])
     delta_thrs = np.array([])
 
+# 0.74: -1.1744386278080048, cond 9
+
 # TODO: Recover logic used by the maple exports previously.
 #  All inv_s etc are multiplied by n etc such that there are never negative powers => May as well expand them and return to r1's, r2's, r12-dependent logic.
+
+
+    # TODO: See nice_at_e1_sol !
 
     # (Speedup factor 1.5?)
 
@@ -141,7 +159,7 @@ def build_SH_xyz_separate_V_fast(
     # m_max = 4
     # ij_max = 4
     # total_max = 4
-
+# n-k, -1.1743159541558044 (try different alpha dependence too)
     rows = []
     for h in frange(0, h_max, 1):
         for k in frange(0, k_max, 1):
@@ -155,10 +173,10 @@ def build_SH_xyz_separate_V_fast(
                             if m % 2 != 0: continue
                             t = h + k + n + m + i + j
                             if t > total_max: continue
-                            ai = np.searchsorted(alpha_thrs, t, side="left")  # Smallest index for which t<=alpha_thrs[ai]
-                            bi = np.searchsorted(beta_thrs, t, side="left")
+                            ai = np.searchsorted(alpha_thrs, n, side="left")  # Smallest index for which t<=alpha_thrs[ai]
+                            bi = np.searchsorted(beta_thrs, h, side="left")
                             di = np.searchsorted(delta_thrs, k, side="left")
-                            rows.append((h, k, n-k, m, i, j, ai, bi, di))
+                            rows.append((h, k, n, m, i, j, ai, bi, di))  #-k-m
 
     basis_idx = np.array(rows, dtype=np.int16)
 
