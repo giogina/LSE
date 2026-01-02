@@ -103,13 +103,13 @@ def build_SH_xyz_separate_V_fast(
 
     # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
     h_max = 6
-    k_max = 6
+    k_max = 3
     n_max = 6
     m_max = 6
     ij_max = 6
     n_min = 0  # for power table
     # n_min = -k_max-m_max  # for power table
-    total_max = 7
+    total_max = 6
 
     # alpha_grid = np.array([0.75, 2, 5])
     # alpha_thrs = np.array([2, 4, 6])  #E[0] := -1.1742607464862156:
@@ -402,8 +402,8 @@ def build_SH_xyz_separate_V_fast(
                 if use_delta:
                     c_m_delta = - 0.5*c3*inv_rAB_t
                     c_n_delta = c1  * inv_s  # n
-                    c_i_delta  = inv_mu1*inv_rAB * np.ones_like(c_n) # i
-                    c_j_delta  = c5*inv_mu2*inv_rAB  # j
+                    c_i_delta = inv_mu1*inv_rAB * np.ones_like(c_n) # i  # TODO: Check that these are correct. (delta != 0 gives a suspicious amount of wrong solutions)
+                    c_j_delta = c5*inv_mu2*inv_rAB  # j
                     c_1_alphadelta = -c1
                     c_1_delta =  2.*inv_r12
                     c_1_delta2 =  - 2.0 * np.ones_like(c_n)
@@ -427,18 +427,16 @@ def build_SH_xyz_separate_V_fast(
                 Hpoly_ij = coef_vector_1 @ Fij
                 Hpoly_ji = coef_vector_1 @ Fji
 
-                tmp = coef_vector_alpha @ Fij
-                Hpoly_ij += tmp * alpha_b[None, :]
-                Hpoly_ji += tmp * alpha_b[None, :]
+                Hpoly_ij += (coef_vector_alpha @ Fij) * alpha_b[None, :]
+                Hpoly_ji += (coef_vector_alpha @ Fji) * alpha_b[None, :]
 
                 tmp = coef_vector_alpha2 @ Fij
                 Hpoly_ij += tmp * (alpha_b[None, :] ** 2)
                 Hpoly_ji += tmp * (alpha_b[None, :] ** 2)
 
                 if use_beta:
-                    tmp = coef_vector_beta @ Fij
-                    Hpoly_ij += tmp * beta_b[None, :]
-                    Hpoly_ji += tmp * beta_b[None, :]
+                    Hpoly_ij += (coef_vector_beta @ Fij) * beta_b[None, :]
+                    Hpoly_ji += (coef_vector_beta @ Fji) * beta_b[None, :]
 
                     tmp = coef_vector_beta2 @ Fij
                     Hpoly_ij += tmp * (beta_b[None, :] ** 2)
@@ -449,9 +447,8 @@ def build_SH_xyz_separate_V_fast(
                     Hpoly_ji += tmp * (alpha_b[None, :] * beta_b[None, :])
 
                 if use_delta:
-                    tmp = coef_vector_delta @ Fij
-                    Hpoly_ij += tmp * delta_b[None, :]
-                    Hpoly_ji += tmp * delta_b[None, :]
+                    Hpoly_ij += (coef_vector_delta @ Fij) * delta_b[None, :]
+                    Hpoly_ji += (coef_vector_delta @ Fji) * delta_b[None, :]
 
                     tmp = coef_vector_delta2 @ Fij
                     Hpoly_ij += tmp * (delta_b[None, :] ** 2)
