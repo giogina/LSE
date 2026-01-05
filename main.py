@@ -3,8 +3,11 @@ from distutils.command.sdist import sdist
 
 import numpy as np
 from scipy.linalg import eig
+from scipy.special import gammaln
+
 from plot import plot_wavefn_and_local_energy
 from util import *
+import math
 
 # from r1_matrix import *
 from r1_matrix_LP import *
@@ -103,7 +106,7 @@ def build_SH_xyz_separate_V_fast(
 
     # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
     h_max = 6
-    k_max = 3
+    k_max = 4
     n_max = 6
     m_max = 6
     ij_max = 6
@@ -123,11 +126,11 @@ def build_SH_xyz_separate_V_fast(
     # alpha_thrs = np.array([2, 4, 5])  # E[0] := -1.1744567099820111: Better energy, okayish LE
     # alpha_grid = np.array([0.74, 1.2, 2.0, 2.5])
     # alpha_thrs = np.array([2, 4, 5])  # E[0] := -1.174466890469607
-    alpha_grid = np.array([0.74, 1.2, 2.0, 2.5])
-    alpha_thrs = np.array([2, 4, 6])  # degrees up to which each alpha applies (always one shorter than _grid)
+    alpha_grid = np.array([0.5, 0.74, 1.2, 2.0, 2.5])
+    alpha_thrs = np.array([0, 2, 4, 6])  # degrees up to which each alpha applies (always one shorter than _grid)
     beta_grid = np.array([0])
     beta_thrs = np.array([])
-    delta_grid = np.array([0])
+    delta_grid = np.array([0.5])
     delta_thrs = np.array([])
 
 # 0.74: -1.1744386278080048, cond 9
@@ -137,6 +140,7 @@ def build_SH_xyz_separate_V_fast(
 
 
     # TODO: See nice_at_e1_sol !
+    #  Just fixed i-j exchange bug - try again to use gamma = 1.8 for k=1
 
     # (Speedup factor 1.5?)
 
@@ -220,9 +224,9 @@ def build_SH_xyz_separate_V_fast(
     nrP = 0
 
     # Non-zero start values necessary to avoid division by 0 (if mu2=0 or rB2=0)
-    x2_vals = np.linspace(0.001, np.floor(Rmax / rStep) * rStep, int(np.floor(Rmax / rStep)) + 1)
+    x2_vals = np.linspace(0.00001, np.floor(Rmax / rStep) * rStep, int(np.floor(Rmax / rStep)) + 1)
     y2_vals = np.linspace(0, np.floor(Rmax / rStep) * rStep, int(np.floor(Rmax / rStep)) + 1)
-    z2_vals = np.linspace(0.01, np.floor(Rmax / rStep) * rStep, int(np.floor(Rmax / rStep)) + 1)  # slight offset prevents rX2=0 (all other points are in (x,y)-plane)
+    z2_vals = np.linspace(0.001, np.floor(Rmax / rStep) * rStep, int(np.floor(Rmax / rStep)) + 1)  # slight offset prevents rX2=0 (all other points are in (x,y)-plane)  # todo: temp
     X2s, Y2s, Z2s = np.meshgrid(x2_vals, y2_vals, z2_vals, indexing="ij")
     x2s = X2s.ravel()
     y2s = Y2s.ravel()
@@ -235,7 +239,6 @@ def build_SH_xyz_separate_V_fast(
         M = 1836.153
         M1M = (M+1) / M
         M_inv = 1 / M
-
 
     start = time.time()
 
@@ -295,7 +298,7 @@ def build_SH_xyz_separate_V_fast(
                 x1 = rA1*np.cos(theta)-xB
                 y1 = rA1*np.sin(theta)
                 rB1 = np.sqrt(((x1-xB)**2+y1**2))
-                if abs(rA1)<0.01 or abs(rB1)<0.01: continue
+                if abs(rA1)<0.001 or abs(rB1)<0.001: continue  # todo: temp 01
 
                 # Compute primitives
                 r12 = np.sqrt((x1 - x2s) ** 2 + (y1 - y2s) ** 2 + z2s ** 2)  # vector of r12 values for all e2 positions
@@ -401,12 +404,12 @@ def build_SH_xyz_separate_V_fast(
 
                 if use_delta:
                     c_m_delta = - 0.5*c3*inv_rAB_t
-                    c_n_delta = c1  * inv_s  # n
-                    c_i_delta = inv_mu1*inv_rAB * np.ones_like(c_n) # i  # TODO: Check that these are correct. (delta != 0 gives a suspicious amount of wrong solutions)
-                    c_j_delta = c5*inv_mu2*inv_rAB  # j
+                    c_n_delta = c1 * inv_s  # n
+                    c_i_delta = c4 * inv_mu1*inv_rAB * np.ones_like(c_n) # i  # TODO: Check that these are correct. (delta != 0 gives a suspicious amount of wrong solutions)
+                    c_j_delta = c5 * inv_mu2*inv_rAB  # j
                     c_1_alphadelta = -c1
-                    c_1_delta =  2.*inv_r12
-                    c_1_delta2 =  - 2.0 * np.ones_like(c_n)
+                    c_1_delta =  2.0*inv_r12
+                    c_1_delta2 =  -1.0 * np.ones_like(c_n)
                     c_k_delta  = 2.0 * inv_r12  # k
 
                 zero = np.zeros_like(r12)
@@ -473,12 +476,14 @@ def build_SH_xyz_separate_V_fast(
                 nr_points = r12_p.shape[0]
                 nr_fncts = basis_idx.shape[0]
 
+                scale = np.exp(n_idx * np.log(2.0 * alpha_b) - 0.5 * gammaln(2*n_idx + 1))[None, :]  # (2*alpha_b)**n_idx / np.sqrt(math.factorial(2*n_idx))
+
                 # Assemble basis functions from power matrices
-                B = np.ones((nr_points, nr_fncts), dtype=np.float64) *  rAB_p[h_idx][None, :]
+                B = np.ones((nr_points, nr_fncts), dtype=np.float64) * rAB_p[h_idx][None, :]
                 B *= r12_p[:, k_idx]
                 B *= s_p[:, n_idx]
                 B *= t_p[:, m_idx]
-                B *= np.exp(-alpha_b[None, :]*s[:, None] - beta_b[None, :]*rAB - delta_b[None, :]*r12[:, None])
+                B *= np.exp(-alpha_b[None, :]*s[:, None] - beta_b[None, :]*rAB - delta_b[None, :]*r12[:, None]) * scale
                 # B *= np.exp(-alpha*s - beta*rAB - delta*r12)[:, None]
 
                 potential = potential_ri(rAB, rA1, rB1, rA2, rB2, r12)
@@ -565,28 +570,34 @@ while i < len(E) and E[i] < 0:
           f"C[{i}] := " + "".join( f" + ({float(x)})*rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}" for ii, x in enumerate(ci)) )
     i += 1
 
-# Suppose you already built dense H, S (n×n) and have an estimate sigma
-sigma = -1.174475
-
-# Start vector from top-left 100×100
-x0, lam0 = make_start_vector_from_topleft(H, S, k=100, sigma=sigma, which="closest")
-
-# Refine
-lam, x, info = shift_invert_target_eigpair(
-    H, S, sigma=sigma, x0=x0,
-    max_iter=30,
-    tol=1e-9,
-    update_sigma=False,     # start conservative
-    regularize_mu=0.0,      # try 1e-12 * np.linalg.norm(H, ord=np.inf) if LU gets cranky
-    normalize="S",
-    verbose=True
-)
-
-print("Result:", lam, info)
-# print(np.real(x))
-print(f"C[{i}] := " + "".join( f" + ({float(x)})*rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}" for ii, x in enumerate(np.real(x))) )
-
-
+# # estimated energy
+# sigma = -1.174475
+#
+# # Start vector from top-left 100×100
+# x0, lam0 = make_start_vector_from_topleft(H, S, k=100, sigma=sigma, which="closest")
+#
+# # Refine
+# lam, x, info = shift_invert_target_eigpair(
+#     H, S, sigma=sigma, x0=x0,
+#     max_iter=30,
+#     tol=1e-9,
+#     update_sigma=False,     # start conservative
+#     regularize_mu=0.0,      # try 1e-12 * np.linalg.norm(H, ord=np.inf) if LU gets cranky
+#     normalize="S",
+#     verbose=True
+# )
+#
+# print("Result:", lam, info)
+# # print(np.real(x))
+# print(f"C[{i}] := " + "".join( f" + ({float(x)})*rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}" for ii, x in enumerate(np.real(x))) )
+#
+#
+# plot_wavefn_and_local_energy(
+#     test_A, test_B, np.real(x)[None, :], np.array([lam]),
+#     x2_vals, y2_vals, z2_vals,
+#     eps=1e-12,
+#     clip_percentiles = (1, 99)
+# )
 
 
 # for rc in [1e-10, 1e-12, 1e-14, 1e-15]:
@@ -599,12 +610,6 @@ print(f"C[{i}] := " + "".join( f" + ({float(x)})*rAB^{h_idx[ii]}*r12^{k_idx[ii]}
 # lam, x = residual_minimize_generalized(H, S, -1.17445, C[:, 0], iters=8, rcond=1e-12, damping=0.5, ridge=0.0)
 # print(lam)
 #
-plot_wavefn_and_local_energy(
-    test_A, test_B, np.real(x)[None, :], np.array([lam]),
-    x2_vals, y2_vals, z2_vals,
-    eps=1e-12,
-    clip_percentiles = (1, 99)
-)
 plot_wavefn_and_local_energy(
     test_A, test_B, C, E,
     x2_vals, y2_vals, z2_vals,
