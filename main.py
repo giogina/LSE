@@ -106,7 +106,7 @@ def build_SH_xyz_separate_V_fast(
 
     # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
     h_max = 6
-    k_max = 4
+    k_max = 3
     n_max = 6
     m_max = 6
     ij_max = 6
@@ -126,14 +126,16 @@ def build_SH_xyz_separate_V_fast(
     # alpha_thrs = np.array([2, 4, 5])  # E[0] := -1.1744567099820111: Better energy, okayish LE
     # alpha_grid = np.array([0.74, 1.2, 2.0, 2.5])
     # alpha_thrs = np.array([2, 4, 5])  # E[0] := -1.174466890469607
-    alpha_grid = np.array([0.5, 0.74, 1.2, 2.0, 2.5])
+    alpha_grid = np.array([0.55, 0.74, 1.2, 2.0, 2.5])
     alpha_thrs = np.array([0, 2, 4, 6])  # degrees up to which each alpha applies (always one shorter than _grid)
     beta_grid = np.array([0])
     beta_thrs = np.array([])
-    delta_grid = np.array([0.5])
+    delta_grid = np.array([0.7])
     delta_thrs = np.array([])
 
 # 0.74: -1.1744386278080048, cond 9
+
+    # TODO: try negative s powers again - did I fully test that after fixing?
 
 # TODO: Recover logic used by the maple exports previously.
 #  All inv_s etc are multiplied by n etc such that there are never negative powers => May as well expand them and return to r1's, r2's, r12-dependent logic.
