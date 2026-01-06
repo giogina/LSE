@@ -394,18 +394,18 @@ def build_SH_xyz_separate_V_fast(
 
                 if use_beta:
                     c_n_beta = c8 * inv_s  # n
-                    c_m_beta = 0.5*c9*inv_rAB_t - 2.*M_inv * inv_rAB
-                    c_i_beta  = (c11*inv_mu1 - 2.*M_inv ) * inv_rAB * np.ones_like(c_n)  #i
-                    c_j_beta  = ( c12*inv_mu2 - 2.*M_inv) * inv_rAB  # j
+                    c_m_beta = 0.5*c9*inv_rAB_t - 2.*M_inv*inv_rAB
+                    c_i_beta  = (c11*inv_mu1 - 2.*M_inv) * inv_rAB * np.ones_like(c_n)  #i
+                    c_j_beta  = (c12*inv_mu2 - 2.*M_inv) * inv_rAB  # j
                     c_h_beta  = 2.0 * M_inv * inv_rAB  * np.ones_like(c_n) # h
                     c_1_alphabeta = -c8
                     c_1_beta =   M_inv*2.*inv_rAB * np.ones_like(c_n)
-                    c_1_beta2 =  - M_inv * np.ones_like(c_n)
+                    c_1_beta2 =  -M_inv * np.ones_like(c_n)
 
                 if use_delta:
                     c_m_delta = - 0.5*c3*inv_rAB_t
                     c_n_delta = c1 * inv_s  # n
-                    c_i_delta = c4 * inv_mu1*inv_rAB * np.ones_like(c_n) # i  # TODO: Check that these are correct. (delta != 0 gives a suspicious amount of wrong solutions)
+                    c_i_delta = c4 * inv_mu1*inv_rAB * np.ones_like(c_n) # i
                     c_j_delta = c5 * inv_mu2*inv_rAB  # j
                     c_1_alphadelta = -c1
                     c_1_delta =  2.0*inv_r12
