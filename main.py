@@ -105,14 +105,14 @@ def build_SH_xyz_separate_V_fast(
 
 
     # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
-    h_max = 6
-    k_max = 6
+    h_max = 5
+    k_max = 5
     n_max = 5
-    m_max = 6
-    ij_max = 6
+    m_max = 5
+    ij_max = 5
     n_min = 0  # for power table
     # n_min = -k_max-m_max  # for power table
-    total_max = 8
+    total_max = 5
 
     # alpha_grid = np.array([0.75, 2, 5])
     # alpha_thrs = np.array([2, 4, 6])  #E[0] := -1.1742607464862156:
@@ -127,11 +127,13 @@ def build_SH_xyz_separate_V_fast(
     # alpha_grid = np.array([0.74, 1.2, 2.0, 2.5])
     # alpha_thrs = np.array([2, 4, 5])  # E[0] := -1.174466890469607
     # alpha_grid = np.array([0.55, 0.74, 1.2, 2.0, 2.5]) # E[0] := -1.174473374118624: (delta = 0.7)
-    alpha_grid = np.array([0.55, 0.74, 1.2, 2.0, 3.0, 3.6])
-    alpha_thrs = np.array([0, 2, 4, 5, 6])  # degrees up to which each alpha applies (always one shorter than _grid)
+    # alpha_grid = np.array([0.74, 1.2, 2.0, 3.0, 3.6])
+    # alpha_thrs = np.array([2, 4, 5, 6])
+    alpha_grid = np.array([0.75])
+    alpha_thrs = np.array([])  # degrees up to which each alpha applies (always one shorter than _grid)
     beta_grid = np.array([0])
     beta_thrs = np.array([])
-    delta_grid = np.array([0.7])  # TODO: this gives a reasonable-looking (but wide) shape; just crossing 0 instead of approaching it.
+    delta_grid = np.array([0])  # TODO: this gives a reasonable-looking (but wide) shape; just crossing 0 instead of approaching it.
     delta_thrs = np.array([])     #    But: function is not smooth at x=0?! Should I adjust that in the ansatz? Or is it due to the electron position and okay?
                                   #      Plot both parts (from different electron positions?)
 # 0.74: -1.1744386278080048, cond 9
@@ -297,7 +299,7 @@ def build_SH_xyz_separate_V_fast(
             rA1 = u1**sigma
             weight=rA1**(2-1/sigma)
             print("rAB =", rAB, "rA1 =", rA1, nrP, f"{int(10*(time.time() - start))/10}s")
-            for theta in np.linspace(0, 2*np.pi, 16, endpoint=False): # Slight offset to avoid hitting nucleus B
+            for theta in np.linspace(0, 2*np.pi, 64, endpoint=False): # Slight offset to avoid hitting nucleus B
                 x1 = rA1*np.cos(theta)-xB
                 y1 = rA1*np.sin(theta)
                 rB1 = np.sqrt(((x1-xB)**2+y1**2))
@@ -305,7 +307,6 @@ def build_SH_xyz_separate_V_fast(
 
                 # Compute primitives
                 r12 = np.sqrt((x1 - x2s) ** 2 + (y1 - y2s) ** 2 + z2s ** 2)  # vector of r12 values for all e2 positions
-
                 inv_r12 = 1.0 / r12
                 inv_rA1 = 1.0 / rA1
                 inv_rB1 = 1.0 / rB1
@@ -318,6 +319,7 @@ def build_SH_xyz_separate_V_fast(
                 s = s1 + s2
                 t = (s1-s2) * inv_rAB * 0.5
                 mu1 = (rA1-rB1) * inv_rAB
+                print(min(r12), rA1, min(rA2), rB1, min(rB2), mu1, min(abs(mu2)))  # Todo: same for all s - should it?
 
                 if abs(mu1) < 0.0001: continue
 
@@ -567,52 +569,13 @@ while i < len(E) and E[i] < 0:
     hp = test_A @ ci
     p = test_B @ ci
 
-    eps = np.sum((hp - p * E[i]) ** 2)
+    eps = np.linalg.norm(H @ ci - E[i] * (S @ ci)) / (np.linalg.norm(H @ ci) + 1e-30)
     print(f"E[{i}] := {E[i]}: epsilon[{i}] := {eps}: "
           # f"C[{i}] := {[f' + ({float(x)}) * rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}' for ii, x in enumerate(ci)]}")
           f"C[{i}] := " + "".join( f" + ({float(x)})*rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}" for ii, x in enumerate(ci)) )
     i += 1
 
-# # estimated energy
-# sigma = -1.174475
-#
-# # Start vector from top-left 100×100
-# x0, lam0 = make_start_vector_from_topleft(H, S, k=100, sigma=sigma, which="closest")
-#
-# # Refine
-# lam, x, info = shift_invert_target_eigpair(
-#     H, S, sigma=sigma, x0=x0,
-#     max_iter=30,
-#     tol=1e-9,
-#     update_sigma=False,     # start conservative
-#     regularize_mu=0.0,      # try 1e-12 * np.linalg.norm(H, ord=np.inf) if LU gets cranky
-#     normalize="S",
-#     verbose=True
-# )
-#
-# print("Result:", lam, info)
-# # print(np.real(x))
-# print(f"C[{i}] := " + "".join( f" + ({float(x)})*rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}" for ii, x in enumerate(np.real(x))) )
-#
-#
-# plot_wavefn_and_local_energy(
-#     test_A, test_B, np.real(x)[None, :], np.array([lam]),
-#     x2_vals, y2_vals, z2_vals,
-#     eps=1e-12,
-#     clip_percentiles = (1, 99)
-# )
 
-
-# for rc in [1e-10, 1e-12, 1e-14, 1e-15]:
-#     E, C, info = solve_gen_eig_deflated(H, S, rcond=rc, assume_H_symmetric=False)
-#     print(rc, info["K"], np.real(E[:5]), np.max(info["residual_rel"][:5]))
-# for rc in [1e-10, 1e-12, 1e-14, 1e-15]:
-#     E, C, info = solve_gen_eig_deflated(H, S, rcond=rc, assume_H_symmetric=True)
-#     print(rc, info["K"], np.real(E[:5]), np.max(info["residual_rel"][:5]))
-
-# lam, x = residual_minimize_generalized(H, S, -1.17445, C[:, 0], iters=8, rcond=1e-12, damping=0.5, ridge=0.0)
-# print(lam)
-#
 plot_wavefn_and_local_energy(
     test_A, test_B, C, E,
     x2_vals, y2_vals, z2_vals,
