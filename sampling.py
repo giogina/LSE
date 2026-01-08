@@ -4,6 +4,8 @@ from numpy.polynomial.laguerre import laggauss
 from numpy.polynomial.legendre import leggauss
 from scipy.special import gammaln
 from scipy.linalg import eig
+
+from plot import mask_closest_phi, plot_phi_and_local_energy_mu2, plot_mu2_with_alpha_beta
 from util import diag_rescale_generalized
 
 
@@ -80,17 +82,17 @@ def shell_area_weight(s1, s2, rAB):
     shell_area_2 = 4*np.pi*((s2 / rAB)**2 - 1/3)
     return shell_area_1 * shell_area_2
 
-def sample_s_shell(rAB, s, Nnu=12, Nphi=16, octant=False):
+def sample_s_shell(rAB, s, nMu=12, Nphi=16, octant=False):
     """
     Deterministic quadrature on the prolate spheroidal shell rA+rB = s.
-    Returns (x,y,z, w) arrays of length Nnu*Nphi.
+    Returns (x,y,z, w) arrays of length nMu*Nphi.
 
     R = full internuclear distance (same R used in mu=s/R)
     """
     mu = s / rAB
 
-    nu0, w0 = leggauss(Nnu)
-    a, b = (0, 1) if octant else (-1, 1) # todo: this kind of forces a strange higher sampling of certain r12 values? Test.
+    nu0, w0 = leggauss(nMu)
+    a, b = (0, 1) if octant else (-1, 1)
     nu = 0.5*(b-a)*nu0 + 0.5*(a+b)
     wnu = 0.5*(b-a)*w0 * (2 if octant else 1)  # (Immediately undo half-weighting, since octant will be mirrored back)
 
@@ -101,7 +103,7 @@ def sample_s_shell(rAB, s, Nnu=12, Nphi=16, octant=False):
 
     # tensor product grid
     nu_grid = np.repeat(nu, Nphi)
-    phi_grid = np.tile(phi, Nnu)
+    phi_grid = np.tile(phi, nMu)
 
     # shell Jacobian factor
     jac = (mu*mu - nu_grid*nu_grid)
@@ -115,7 +117,7 @@ def sample_s_shell(rAB, s, Nnu=12, Nphi=16, octant=False):
     y = rho * np.cos(phi_grid)
     z = rho * np.sin(phi_grid) if Nphi > 2 else np.zeros_like(x)
 
-    return x, y, z, w
+    return x, y, z, nu_grid, phi_grid, w
 
 
 BO = True
@@ -127,8 +129,15 @@ k_max = 8
 n_max = 8
 m_max = 8
 ij_max = 8
-total_max = 6
+total_max = 5
 delta = 0
+
+plot_phi_target = np.pi*0.4
+plot_rAB_target = 1.4
+plot_s2_target = 8.023354 - plot_rAB_target  # todo: make sure it's alwasy very close to an actual s value; so that the space around the nuclei is sampled well in the plot.
+
+nMu = 24
+nS = 30
 
 use_delta = delta != 0
 
@@ -204,8 +213,19 @@ H_beta_layers = {}
 H_beta_2_layers = {}
 H_alpha_beta_layers = {}
 
+plot_mu2_chunks = []
+plot_x1_chunks = []
+plot_y1_chunks = []
+plot_B_chunks  = []
+plot_chunks_A_1 = []
+plot_chunks_A_alpha = []
+plot_chunks_A_beta = []
+plot_chunks_A_alpha2 = []
+plot_chunks_A_alphabeta = []
+plot_chunks_A_beta2 = []
+
 for rAB in abRange:
-    s_shells, sW = build_s_shells(rAB, Ks=20, s_max=30.0)
+    s_shells, sW = build_s_shells(rAB, Ks=nS, s_max=30.0)
 
     for ks, s in enumerate(s_shells):
 
@@ -228,15 +248,20 @@ for rAB in abRange:
         Hl_beta = np.zeros((matSize, matSize), dtype=np.float64)
         Hl_beta2 = np.zeros((matSize, matSize), dtype=np.float64)
 
+        if s-rAB > plot_s2_target:
+            s2_vals = np.append(s2_vals, plot_s2_target)
+            s1_vals = np.append(s1_vals, s - plot_s2_target)
+            splitW = np.append(splitW, 0.0)
+
         for j, (s1, s2) in enumerate(zip(s1_vals, s2_vals)):
 
             # sample electron 1 on its s1-shell
-            x1, y1, _, w1 = sample_s_shell(rAB, s1, Nphi=2, Nnu=16)  # x-y plane only
+            x1, y1, _, mu1, _, w1 = sample_s_shell(rAB, s1, Nphi=2, nMu=nMu)  # x-y plane only
             rA1 = np.sqrt((x1 + rAB/2) ** 2 + y1 ** 2)
             rB1 = np.sqrt((x1 - rAB/2) ** 2 + y1 ** 2)  # vectorized distances
 
             # sample electron 2 on its s2-shell
-            x2, y2, z2, w2 = sample_s_shell(rAB, s2, octant=True, Nnu=16)
+            x2, y2, z2, mu2, phi2, w2 = sample_s_shell(rAB, s2, octant=True, nMu=nMu)
             rA2 = np.sqrt((x2 + rAB/2)**2 + y2**2 + z2**2)
             rB2 = np.sqrt((x2 - rAB/2)**2 + y2**2 + z2**2)
 
@@ -245,7 +270,7 @@ for rAB in abRange:
             inv_rB1 = 1.0 / rB1
             rA1_2 = rA1 * rA1
             rB1_2 = rB1 * rB1
-            mu1 = (rA1 - rB1) * inv_rAB
+            # mu1 = (rA1 - rB1) * inv_rAB
             inv_mu1 = 1 / mu1
             inv_mu1_2 = inv_mu1 * inv_mu1
             v1 = inv_rA1 + inv_rB1
@@ -260,7 +285,7 @@ for rAB in abRange:
             inv_rB2 = 1.0 / rB2
             rA2_2 = rA2 * rA2
             rB2_2 = rB2 * rB2
-            mu2 = (rA2 - rB2) * inv_rAB
+            # mu2 = (rA2 - rB2) * inv_rAB
             inv_mu2 = 1.0 / mu2
             inv_mu2_2 = inv_mu2 * inv_mu2
             v2 = inv_rA2 + inv_rB2
@@ -348,7 +373,7 @@ for rAB in abRange:
             c8 = M_inv * (cos1AB + cos1BA + cos2AB + cos2BA)
             c9 = M_inv * (cos1AB + cos1BA - cos2AB - cos2BA)
             c10 = M_inv * (cos1A2 - cos1B2)
-           
+
             # Coefficients of: [n^2, n, k*n, n*m, m^2, m, m*k, i^2-i, i, i*k, j^2-j, j, j*k, k^2 + k, k, 1]
             c_n2 = -( 2.0*M1M + c2 + c7 ) * inv_s_2  # n^2 - n
             c_n  = - M1M*v12 * inv_s  # n
@@ -445,12 +470,47 @@ for rAB in abRange:
             # Assemble basis functions from power matrices
             B = np.ones((r12_p.shape[0], matSize), dtype=np.float64) * (rAB_p[h_idx]*s_p[n_idx]*t_p[m_idx])[None, :] * scale
             B *= r12_p[:, k_idx]
-            B *= sqrtW[:, None]
             B *= np.exp(-delta*r12)[:, None]
 
             mu_part_ij = mu1_p[:, i_idx] * mu2_p[:, j_idx]
             mu_part_ji = mu1_p[:, j_idx] * mu2_p[:, i_idx]
 
+            if abs(s2-plot_s2_target) < 1e-8:
+                mask_e2, phi_used = mask_closest_phi(phi2, plot_phi_target)
+                mask_pair = np.tile(mask_e2, P1)
+                x1_sel = np.repeat(x1, P2)[mask_pair]
+                y1_sel = np.repeat(y1, P2)[mask_pair]
+                mu2_sel = mu2[mask_pair]
+                B_ij = (B * mu_part_ij)
+                B_ji = (B * mu_part_ji)
+                B_plot = (B_ij + B_ji)[mask_pair, :]
+                plot_mu2_chunks.append(mu2_sel)
+                plot_x1_chunks.append(x1_sel)
+                plot_y1_chunks.append(y1_sel)
+                plot_B_chunks.append(B_plot)
+
+                A_1_full = H_1_ij * B_ij + H_1_ji * B_ji
+                A_alpha_full = H_alpha_ij * B_ij + H_alpha_ji * B_ji
+                A_beta_full = H_beta_ij * B_ij + H_beta_ji * B_ji
+                Bs = (B_ij + B_ji)
+                A_alpha2_full = H_alpha2 * Bs
+                A_beta2_full = H_beta2 * Bs
+                A_ab_full = H_alphabeta * Bs
+                A_1_sel       = A_1_full[mask_pair, :]
+                A_alpha_sel   = A_alpha_full[mask_pair, :]
+                A_beta_sel    = A_beta_full[mask_pair, :]
+                A_alpha2_sel  = A_alpha2_full[mask_pair, :]
+                A_beta2_sel   = A_beta2_full[mask_pair, :]
+                A_ab_sel      = A_ab_full[mask_pair, :]
+                assert B_plot.shape == A_alpha_sel.shape
+                plot_chunks_A_1.append(A_1_sel)
+                plot_chunks_A_alpha.append(A_alpha_sel)
+                plot_chunks_A_beta.append(A_beta_sel)
+                plot_chunks_A_alpha2.append(A_alpha2_sel)
+                plot_chunks_A_alphabeta.append(A_ab_sel)
+                plot_chunks_A_beta2.append(A_beta2_sel)
+
+            B *= sqrtW[:, None]
             B_ij = B * mu_part_ij
             B_ji = B * mu_part_ji
 
@@ -483,54 +543,114 @@ for rAB in abRange:
 
         print(ks, rAB, s, nrP, time.time() - start)
 
-for alpha in frange(0.7, 0.86, 0.005):
-    S = np.zeros((matSize, matSize), dtype=np.float64)
-    H = np.zeros((matSize, matSize), dtype=np.float64)
+mu2_all = np.concatenate(plot_mu2_chunks)
+x1_all = np.concatenate(plot_x1_chunks)
+y1_all = np.concatenate(plot_y1_chunks)
+B_plot_all = np.vstack(plot_B_chunks)
+A_1_all = np.vstack(plot_chunks_A_1)
+A_alpha_all = np.vstack(plot_chunks_A_alpha)
+A_beta_all = np.vstack(plot_chunks_A_beta)
+A_alpha2_all = np.vstack(plot_chunks_A_alpha2)
+A_alphabeta_all = np.vstack(plot_chunks_A_alphabeta)
+A_beta2_all = np.vstack(plot_chunks_A_beta2)
 
-    # alpha = 0.74
-    beta = 0
+plot_mu2_with_alpha_beta(
+    x1_all=x1_all, y1_all=y1_all, mu2_all=mu2_all,
+    B_plot_all=B_plot_all,
+    A_1_all=A_1_all, A_alpha_all=A_alpha_all, A_beta_all=A_beta_all,
+    A_alpha2_all=A_alpha2_all, A_alphabeta_all=A_alphabeta_all, A_beta2_all=A_beta2_all,
 
-    for (rAB, s), Sl in S_layers.items(): S += Sl * np.exp(-2*alpha*s - 2*beta*rAB)
-    for (rAB, s), Hl in H_1_layers.items(): H += Hl * np.exp(-2*alpha*s - 2*beta*rAB)
-    for (rAB, s), Hl in H_alpha_layers.items(): H += Hl * alpha * np.exp(-2*alpha*s - 2*beta*rAB)
-    for (rAB, s), Hl in H_alpha_2_layers.items(): H += Hl * alpha**2 * np.exp(-2*alpha*s - 2*beta*rAB)
-    for (rAB, s), Hl in H_alpha_beta_layers.items(): H += Hl * alpha*beta * np.exp(-2*alpha*s - 2*beta*rAB)
-    for (rAB, s), Hl in H_beta_layers.items(): H += Hl * beta * np.exp(-2*alpha*s - 2*beta*rAB)
-    for (rAB, s), Hl in H_beta_2_layers.items(): H += Hl * beta**2 * np.exp(-2*alpha*s - 2*beta*rAB)
+    S_layers=S_layers,
+    H_1_layers=H_1_layers,
+    H_alpha_layers=H_alpha_layers,
+    H_beta_layers=H_beta_layers,
+    H_alpha_2_layers=H_alpha_2_layers,
+    H_beta_2_layers=H_beta_2_layers,
+    H_alpha_beta_layers=H_alpha_beta_layers,
 
+    matSize=matSize,
+    diag_rescale_generalized=diag_rescale_generalized,
 
-    H, S = diag_rescale_generalized(H, S)
+    plot_rAB_target=plot_rAB_target,
+    plot_s2_target=plot_s2_target,
+    plot_phi_target=plot_phi_target,
 
-    eigvals = np.linalg.eigvalsh(S)
-    # print("After Diag rescaling:")
-    # print(eigvals)
-    # print("min eig:", np.abs(eigvals).min())
-    # print("max eig:", np.abs(eigvals).max())
-    print(f"\nalpha = {alpha}, cond: {eigvals.max() / eigvals.min():.3e}")
+    alpha_values=np.arange(0.70, 0.81, 0.01),
+    beta_values=np.array([0.0]),
 
-    # inspect_small_overlap_eigenvectors(S)
+    zlim_eloc=(-3, 0),
+    subsample=4000,
+)
 
-    h_idx = basis_idx[:, 0]
-    k_idx = basis_idx[:, 1]
-    n_idx = basis_idx[:, 2]
-    m_idx = basis_idx[:, 3]
-    i_idx = basis_idx[:, 4]
-    j_idx = basis_idx[:, 5]
-
-    E, C = eig(H, S)
-    idx = np.argsort(E)
-    E = np.real(E[idx])
-    C = np.real(C[:, idx])
-
-    i = 0
-    while i < len(E) and E[i] < 0:
-        ci = C[:, i]
-        ci = ci/ci[0]
-        # hp = test_A @ ci
-        # p = test_B @ ci
-
-        eps = np.linalg.norm(H @ ci - E[i] * (S @ ci)) / (np.linalg.norm(H @ ci) + 1e-30)
-        print(f"E[{i}] := {E[i]}: epsilon[{i}] := {eps}: "
-              # f"C[{i}] := {[f' + ({float(x)}) * rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}' for ii, x in enumerate(ci)]}")
-              f"C[{i}] := " + "".join( f" + ({float(x)})*rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}" for ii, x in enumerate(ci)) )
-        i += 1
+# for alpha in frange(0.75, 0.75, 0.01):
+#     S = np.zeros((matSize, matSize), dtype=np.float64)
+#     H = np.zeros((matSize, matSize), dtype=np.float64)
+#
+#     # alpha = 0.74
+#     beta = 0
+#
+#     for (rAB, s), Sl in S_layers.items(): S += Sl * np.exp(-2*alpha*s - 2*beta*rAB)
+#     for (rAB, s), Hl in H_1_layers.items(): H += Hl * np.exp(-2*alpha*s - 2*beta*rAB)
+#     for (rAB, s), Hl in H_alpha_layers.items(): H += Hl * alpha * np.exp(-2*alpha*s - 2*beta*rAB)
+#     for (rAB, s), Hl in H_alpha_2_layers.items(): H += Hl * alpha**2 * np.exp(-2*alpha*s - 2*beta*rAB)
+#     for (rAB, s), Hl in H_alpha_beta_layers.items(): H += Hl * alpha*beta * np.exp(-2*alpha*s - 2*beta*rAB)
+#     for (rAB, s), Hl in H_beta_layers.items(): H += Hl * beta * np.exp(-2*alpha*s - 2*beta*rAB)
+#     for (rAB, s), Hl in H_beta_2_layers.items(): H += Hl * beta**2 * np.exp(-2*alpha*s - 2*beta*rAB)
+#
+#     H, S = diag_rescale_generalized(H, S)
+#
+#     eigvals = np.linalg.eigvalsh(S)
+#     # print("After Diag rescaling:")
+#     # print(eigvals)
+#     # print("min eig:", np.abs(eigvals).min())
+#     # print("max eig:", np.abs(eigvals).max())
+#     print(f"\nalpha = {alpha}, cond: {eigvals.max() / eigvals.min():.3e}")
+#
+#     # inspect_small_overlap_eigenvectors(S)
+#
+#     h_idx = basis_idx[:, 0]
+#     k_idx = basis_idx[:, 1]
+#     n_idx = basis_idx[:, 2]
+#     m_idx = basis_idx[:, 3]
+#     i_idx = basis_idx[:, 4]
+#     j_idx = basis_idx[:, 5]
+#
+#     E, C = eig(H, S)
+#     idx = np.argsort(E)
+#     E = np.real(E[idx])
+#     C = np.real(C[:, idx])
+#
+#     i = 0
+#     while i < len(E) and E[i] < 0:
+#         ci = C[:, i]
+#         ci = ci/ci[0]
+#         # hp = test_A @ ci
+#         # p = test_B @ ci
+#
+#         eps = np.linalg.norm(H @ ci - E[i] * (S @ ci)) / (np.linalg.norm(H @ ci) + 1e-30)
+#         print(f"E[{i}] := {E[i]}: epsilon[{i}] := {eps}: "
+#               # f"C[{i}] := {[f' + ({float(x)}) * rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}' for ii, x in enumerate(ci)]}")
+#               f"C[{i}] := " + "".join( f" + ({float(x)})*rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}" for ii, x in enumerate(ci)) )
+#         i += 1
+#
+#     x = x1_all
+#     y = y1_all
+#     rAB = plot_rAB_target
+#     s = plot_s2_target + np.sqrt((x + 0.5 * rAB) ** 2 + y ** 2) + np.sqrt((x - 0.5 * rAB) ** 2 + y ** 2)
+#
+#     plot_phi_and_local_energy_mu2(
+#         x1_all, y1_all, mu2_all,
+#         B_plot_all,
+#         A_1_all,
+#         A_alpha_all,
+#         A_beta_all,
+#         A_alpha2_all,
+#         A_alphabeta_all,
+#         A_beta2_all,
+#         rAB = plot_rAB_target,
+#         phi = plot_phi_target,
+#         s2 = plot_s2_target,
+#         exps = np.exp(-alpha * s - beta * rAB)[:, None],
+#         C = C, E = E,
+#         alpha=alpha, beta=beta, zlim_eloc=(-3, 0)
+#     )
