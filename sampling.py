@@ -27,20 +27,16 @@ def power_table(x, p_max, p_min=0):
     n_cols = n_pos + n_neg
 
     out = np.empty((x.shape[0], n_cols) if x.ndim else (n_cols,), dtype=np.float64)
+    out[..., 0] = 1.0  # s^0
 
-    # s^0
-    out[..., 0] = 1.0
-
-    # s^1 ... s^p_max
     for e in range(1, p_max + 1):
-        out[..., e] = out[..., e - 1] * x
+        out[..., e] = out[..., e - 1] * x  # s^1 ... s^p_max
 
-    # s^p_min ... s^-1
     if p_min < 0:
         col = p_max + 1
         out[..., col] = x ** p_min
         for e in range(p_min + 1, 0):
-            out[..., col + 1] = out[..., col] * x
+            out[..., col + 1] = out[..., col] * x   # s^p_min ... s^-1
             col += 1
 
     return out
@@ -94,7 +90,7 @@ def sample_s_shell(rAB, s, Nnu=12, Nphi=16, octant=False):
     mu = s / rAB
 
     nu0, w0 = leggauss(Nnu)
-    a, b = (0, 0.999) if octant else (-1, 1) # todo: this kind of forces a strange higher sampling of certain r12 values? Test.
+    a, b = (0, 1) if octant else (-1, 1) # todo: this kind of forces a strange higher sampling of certain r12 values? Test.
     nu = 0.5*(b-a)*nu0 + 0.5*(a+b)
     wnu = 0.5*(b-a)*w0 * (2 if octant else 1)  # (Immediately undo half-weighting, since octant will be mirrored back)
 
@@ -124,8 +120,6 @@ def sample_s_shell(rAB, s, Nnu=12, Nphi=16, octant=False):
 
 BO = True
 M = 1836.153
-use_beta = True
-use_delta = True
 
 # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
 h_max = 5
@@ -134,12 +128,9 @@ n_max = 8
 m_max = 8
 ij_max = 8
 total_max = 6
-alpha_grid = np.array([0.75])
-alpha_thrs = np.array([])  # degrees up to which each alpha applies (always one shorter than _grid)
-beta_grid = np.array([0])
-beta_thrs = np.array([])
-delta_grid = np.array([0])
-delta_thrs = np.array([])
+delta = 0
+
+use_delta = delta != 0
 
 if BO:
     M1M = 1
@@ -150,8 +141,7 @@ else:
 
 if BO:  # Reset if not used
     h_max = 0  # avoid rAB dependence
-    beta_grid = np.array([0])
-    beta_thrs = np.array([])
+    beta = 0
 
 rows = []
 for h in frange(0, h_max, 1):
@@ -166,10 +156,7 @@ for h in frange(0, h_max, 1):
                         if m % 2 != 0: continue
                         t = h + k + n + m + i + j
                         if t > total_max: continue
-                        ai = np.searchsorted(alpha_thrs, n, side="left")  # Smallest index for which t<=alpha_thrs[ai]
-                        bi = np.searchsorted(beta_thrs, h, side="left")
-                        di = np.searchsorted(delta_thrs, k, side="left")
-                        rows.append((h, k, n, m, i, j, ai, bi, di))  #-k-m
+                        rows.append((h, k, n, m, i, j))  #-k-m
 
 basis_idx = np.array(rows, dtype=np.int16)
 
@@ -180,9 +167,6 @@ n_idx = basis_idx[:, 2]
 m_idx = basis_idx[:, 3]
 i_idx = basis_idx[:, 4]
 j_idx = basis_idx[:, 5]
-alpha_idx = basis_idx[:, 6]
-beta_idx = basis_idx[:, 7]
-delta_idx = basis_idx[:, 8]
 
 h = h_idx.astype(np.float64)
 k = k_idx.astype(np.float64)
@@ -190,9 +174,6 @@ n = n_idx.astype(np.float64)
 m = m_idx.astype(np.float64)
 i = i_idx.astype(np.float64)
 j = j_idx.astype(np.float64)
-alpha_b = alpha_grid[alpha_idx].astype(np.float64)
-beta_b = beta_grid[beta_idx].astype(np.float64)
-delta_b = delta_grid[delta_idx].astype(np.float64)
 
 Fij = np.stack([n * n - n, n, k * n, n * m, n * (m - h), n * i, n * j,
                  m * m, m, m * k, m * i, m * j, m * (i + j - h),
@@ -212,14 +193,19 @@ print(f"MatSize = {matSize}")
 
 start = time.time()
 
-S = np.zeros((matSize, matSize), dtype=np.float64)
-H = np.zeros((matSize, matSize), dtype=np.float64)
-
 nrP = 0
 abRange = frange(1.4, 1.4, 0.2)
 
+S_layers = {}
+H_1_layers = {}
+H_alpha_layers = {}
+H_alpha_2_layers = {}
+H_beta_layers = {}
+H_beta_2_layers = {}
+H_alpha_beta_layers = {}
+
 for rAB in abRange:
-    s_shells, sW = build_s_shells(rAB, Ks=40, s_max=30.0)
+    s_shells, sW = build_s_shells(rAB, Ks=20, s_max=30.0)
 
     for ks, s in enumerate(s_shells):
 
@@ -233,15 +219,24 @@ for rAB in abRange:
         rAB_p = rAB ** np.arange(0, k_max+1)
 
         s1_vals, s2_vals, splitW = split_s(s, rAB, Ku=10)
+
+        Sl = np.zeros((matSize, matSize), dtype=np.float64)
+        Hl_1 = np.zeros((matSize, matSize), dtype=np.float64)
+        Hl_alpha = np.zeros((matSize, matSize), dtype=np.float64)
+        Hl_alpha2 = np.zeros((matSize, matSize), dtype=np.float64)
+        Hl_alphabeta = np.zeros((matSize, matSize), dtype=np.float64)
+        Hl_beta = np.zeros((matSize, matSize), dtype=np.float64)
+        Hl_beta2 = np.zeros((matSize, matSize), dtype=np.float64)
+
         for j, (s1, s2) in enumerate(zip(s1_vals, s2_vals)):
 
             # sample electron 1 on its s1-shell
-            x1, y1, _, w1 = sample_s_shell(rAB, s1, Nphi=2, Nnu=24)  # x-y plane only
+            x1, y1, _, w1 = sample_s_shell(rAB, s1, Nphi=2, Nnu=16)  # x-y plane only
             rA1 = np.sqrt((x1 + rAB/2) ** 2 + y1 ** 2)
             rB1 = np.sqrt((x1 - rAB/2) ** 2 + y1 ** 2)  # vectorized distances
 
             # sample electron 2 on its s2-shell
-            x2, y2, z2, w2 = sample_s_shell(rAB, s2, octant=True, Nnu=24) # todo: prevent same-point overlaps
+            x2, y2, z2, w2 = sample_s_shell(rAB, s2, octant=True, Nnu=16)
             rA2 = np.sqrt((x2 + rAB/2)**2 + y2**2 + z2**2)
             rB2 = np.sqrt((x2 - rAB/2)**2 + y2**2 + z2**2)
 
@@ -317,19 +312,16 @@ for rAB in abRange:
             v2 = np.tile(v2, P1)
             cos2AB = np.tile(cos2AB, P1)
             cos2BA = np.tile(cos2BA, P1)
-            cosA2B = np.tile(cosA2B, P1)  # todo: Check for singular entries (1/mu1 etc)
+            cosA2B = np.tile(cosA2B, P1)
             c12 = np.tile(c12, P1)
             mu2_p = np.tile(mu2_p, (P1, 1))
 
-            # print(len(rA1), len(rA2), len(r12))
-            # print(min(abs(rA1)), min(abs(rA2)), min(abs(rB1)), min(abs(rB2)), min(abs(mu1)), min(abs(mu2))) # Todo: same for all s - should it?
-
             # r12-dependent quantities
-
             dx = x1[:, None] - x2[None, :]
             dy = y1[:, None] - y2[None, :]
             dz = 0.0         - z2[None, :]
             r12   = np.sqrt(dx*dx + dy*dy + dz*dz).ravel()  # vector of r12 values for all e1, e2 positions
+            r12 = np.maximum(r12, 10**(-8))
             r12_p = power_table(r12, k_max)
 
             inv_r12 = 1.0 / r12
@@ -356,8 +348,6 @@ for rAB in abRange:
             c8 = M_inv * (cos1AB + cos1BA + cos2AB + cos2BA)
             c9 = M_inv * (cos1AB + cos1BA - cos2AB - cos2BA)
             c10 = M_inv * (cos1A2 - cos1B2)
-
-            #     W = sW[ks] * splitW[j] * shell_area(s1/rAB) * shell_area(s2/rAB)  # TODO: weights!
            
             # Coefficients of: [n^2, n, k*n, n*m, m^2, m, m*k, i^2-i, i, i*k, j^2-j, j, j*k, k^2 + k, k, 1]
             c_n2 = -( 2.0*M1M + c2 + c7 ) * inv_s_2  # n^2 - n
@@ -393,15 +383,14 @@ for rAB in abRange:
             c_1_alpha  = M1M*v12
             c_1_alpha2  = -( 2*M1M + c2 + c7 )
 
-            if use_beta:
-                c_n_beta = c8 * inv_s  # n
-                c_m_beta = 0.5*c9*inv_rAB_t - 2.*M_inv*inv_rAB
-                c_i_beta  = (c11*inv_mu1 - 2.*M_inv) * inv_rAB * np.ones_like(c_n)  #i
-                c_j_beta  = (c12*inv_mu2 - 2.*M_inv) * inv_rAB  # j
-                c_h_beta  = 2.0 * M_inv * inv_rAB  * np.ones_like(c_n) # h
-                c_1_alphabeta = -c8
-                c_1_beta =   M_inv*2.*inv_rAB * np.ones_like(c_n)
-                c_1_beta2 =  -M_inv * np.ones_like(c_n)
+            c_n_beta = c8 * inv_s  # n
+            c_m_beta = 0.5*c9*inv_rAB_t - 2.*M_inv*inv_rAB
+            c_i_beta  = (c11*inv_mu1 - 2.*M_inv) * inv_rAB * np.ones_like(c_n)  #i
+            c_j_beta  = (c12*inv_mu2 - 2.*M_inv) * inv_rAB  # j
+            c_h_beta  = 2.0 * M_inv * inv_rAB  * np.ones_like(c_n) # h
+            c_1_alphabeta = -c8
+            c_1_beta =   M_inv*2.*inv_rAB * np.ones_like(c_n)
+            c_1_beta2 =  -M_inv * np.ones_like(c_n)
 
             if use_delta:
                 c_m_delta = - 0.5*c3*inv_rAB_t
@@ -417,118 +406,65 @@ for rAB in abRange:
             coef_vector_1 = np.stack([c_n2, c_n, c_kn, c_nm, c_nmh, c_ni, c_nj, c_m2, c_m, c_mk, c_mi, c_mj, c_mijh, c_i2, c_i, c_ij, c_ik, c_ih, c_j2, c_j, c_jk, c_jh, c_h2, zero, c_k2, zero, zero], axis=1)
             coef_vector_alpha = np.stack([zero, c_n_alpha, zero, zero, zero, zero, zero, zero, c_m_alpha, zero, zero, zero, zero, zero, c_i_alpha, zero, zero, zero, zero, c_j_alpha, zero, zero, zero, c_h_alpha, zero, c_k_alpha, c_1_alpha], axis=1)
             coef_vector_alpha2 = np.stack([zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_1_alpha2], axis=1)
-            if use_beta:
-                coef_vector_beta = np.stack([zero, c_n_beta, zero, zero, zero, zero, zero, zero, c_m_beta, zero, zero, zero, zero, zero, c_i_beta, zero, zero, zero, zero, c_j_beta, zero, zero, zero, c_h_beta, zero, zero, c_1_beta], axis=1)
-                coef_vector_alphabeta = np.stack([zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_1_alphabeta], axis=1)
-                coef_vector_beta2 = np.stack([zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_1_beta2], axis=1)
+
+            coef_vector_beta = np.stack([zero, c_n_beta, zero, zero, zero, zero, zero, zero, c_m_beta, zero, zero, zero, zero, zero, c_i_beta, zero, zero, zero, zero, c_j_beta, zero, zero, zero, c_h_beta, zero, zero, c_1_beta], axis=1)
+            coef_vector_alphabeta = np.stack([zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_1_alphabeta], axis=1)
+            coef_vector_beta2 = np.stack([zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_1_beta2], axis=1)
+
             if use_delta:
                 coef_vector_delta = np.stack([zero, c_n_delta, zero, zero, zero, zero, zero, zero, c_m_delta, zero, zero, zero, zero, zero, c_i_delta, zero, zero, zero, zero, c_j_delta, zero, zero, zero, zero, zero, c_k_delta, c_1_delta], axis=1)
                 coef_vector_alphadelta = np.stack([zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_1_alphadelta], axis=1)
                 coef_vector_delta2 = np.stack([zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_1_delta2], axis=1)
 
-            zero = np.zeros_like(r12)
-            coef_vector_1 = np.stack(
-                [c_n2, c_n, c_kn, c_nm, c_nmh, c_ni, c_nj, c_m2, c_m, c_mk, c_mi, c_mj, c_mijh, c_i2, c_i, c_ij, c_ik,
-                 c_ih, c_j2, c_j, c_jk, c_jh, c_h2, zero, c_k2, zero, zero], axis=1)
-            coef_vector_alpha = np.stack(
-                [zero, c_n_alpha, zero, zero, zero, zero, zero, zero, c_m_alpha, zero, zero, zero, zero, zero,
-                 c_i_alpha, zero, zero, zero, zero, c_j_alpha, zero, zero, zero, c_h_alpha, zero, c_k_alpha, c_1_alpha],
-                axis=1)
-            coef_vector_alpha2 = np.stack(
-                [zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero,
-                 zero, zero, zero, zero, zero, zero, zero, zero, zero, c_1_alpha2], axis=1)
-            if use_beta:
-                coef_vector_beta = np.stack(
-                    [zero, c_n_beta, zero, zero, zero, zero, zero, zero, c_m_beta, zero, zero, zero, zero, zero,
-                     c_i_beta, zero, zero, zero, zero, c_j_beta, zero, zero, zero, c_h_beta, zero, zero, c_1_beta],
-                    axis=1)
-                coef_vector_alphabeta = np.stack(
-                    [zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero,
-                     zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_1_alphabeta], axis=1)
-                coef_vector_beta2 = np.stack(
-                    [zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero,
-                     zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_1_beta2], axis=1)
-            if use_delta:
-                coef_vector_delta = np.stack(
-                    [zero, c_n_delta, zero, zero, zero, zero, zero, zero, c_m_delta, zero, zero, zero, zero, zero,
-                     c_i_delta, zero, zero, zero, zero, c_j_delta, zero, zero, zero, zero, zero, c_k_delta, c_1_delta],
-                    axis=1)
-                coef_vector_alphadelta = np.stack(
-                    [zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero,
-                     zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_1_alphadelta], axis=1)
-                coef_vector_delta2 = np.stack(
-                    [zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero,
-                     zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_1_delta2], axis=1)
-
-            # Base (no parameters)
-            Hpoly_ij = coef_vector_1 @ Fij
-            Hpoly_ji = coef_vector_1 @ Fji
-
-            Hpoly_ij += (coef_vector_alpha @ Fij) * alpha_b[None, :]
-            Hpoly_ji += (coef_vector_alpha @ Fji) * alpha_b[None, :]
-
-            tmp = coef_vector_alpha2 @ Fij
-            Hpoly_ij += tmp * (alpha_b[None, :] ** 2)
-            Hpoly_ji += tmp * (alpha_b[None, :] ** 2)
-
-            if use_beta:
-                Hpoly_ij += (coef_vector_beta @ Fij) * beta_b[None, :]
-                Hpoly_ji += (coef_vector_beta @ Fji) * beta_b[None, :]
-
-                tmp = coef_vector_beta2 @ Fij
-                Hpoly_ij += tmp * (beta_b[None, :] ** 2)
-                Hpoly_ji += tmp * (beta_b[None, :] ** 2)
-
-                tmp = coef_vector_alphabeta @ Fij
-                Hpoly_ij += tmp * (alpha_b[None, :] * beta_b[None, :])
-                Hpoly_ji += tmp * (alpha_b[None, :] * beta_b[None, :])
-
-            if use_delta:
-                Hpoly_ij += (coef_vector_delta @ Fij) * delta_b[None, :]
-                Hpoly_ji += (coef_vector_delta @ Fji) * delta_b[None, :]
-
-                tmp = coef_vector_delta2 @ Fij
-                Hpoly_ij += tmp * (delta_b[None, :] ** 2)
-                Hpoly_ji += tmp * (delta_b[None, :] ** 2)
-
-                tmp = coef_vector_alphadelta @ Fij
-                Hpoly_ij += tmp * (alpha_b[None, :] * delta_b[None, :])
-                Hpoly_ji += tmp * (alpha_b[None, :] * delta_b[None, :])
-
-            nr_points = r12_p.shape[0]
-            nr_fncts = basis_idx.shape[0]
-
-            nr_points = r12_p.shape[0]
-            nr_fncts = basis_idx.shape[0]
-
-            scale = np.exp(n_idx * np.log(2.0 * 0.75) - 0.5 * gammaln(2 * n_idx + 1))[None, :]
-
-            # Assemble basis functions from power matrices
-            B = np.ones((nr_points, nr_fncts), dtype=np.float64) * (rAB_p[h_idx]*s_p[n_idx]*t_p[m_idx])[None, :]
-            B *= r12_p[:, k_idx]
-            B *= np.exp(-alpha_b[None, :] * s - beta_b[None, :] * rAB - delta_b[None, :] * r12[:, None]) * scale
-            # B *= np.exp(-alpha*s - beta*rAB - delta*r12)[:, None]
-
             potential = potential_ri(rAB, rA1, rB1, rA2, rB2, r12)
+            H_1_ij = coef_vector_1 @ Fij + potential[:, None]
+            H_1_ji = coef_vector_1 @ Fji + potential[:, None]
+            if use_delta:
+                H_1_ij += (coef_vector_delta * delta + coef_vector_delta2 * delta ** 2) @ Fij
+                H_1_ji += (coef_vector_delta * delta + coef_vector_delta2 * delta ** 2) @ Fji
 
-            mu_part_ij = mu1_p[:, i_idx] * mu2_p[:, j_idx]
-            mu_part_ji = mu1_p[:, j_idx] * mu2_p[:, i_idx]
-            H_ij_part = mu_part_ij * Hpoly_ij + mu_part_ji * Hpoly_ji
-
-            A = B * H_ij_part
-            B *= (mu_part_ij + mu_part_ji)
-            A += B * potential[:, None]
+            H_alpha_ij = coef_vector_alpha @ Fij
+            H_alpha_ji = coef_vector_alpha @ Fji
+            if use_delta:
+                tmp = coef_vector_alphadelta*delta @ Fij
+                H_alpha_ij += tmp
+                H_alpha_ji += tmp
+            H_alpha2 = coef_vector_alpha2 @ Fij
+            H_alphabeta = coef_vector_alphabeta @ Fij
+            H_beta_ij = coef_vector_beta @ Fij
+            H_beta_ji = coef_vector_beta @ Fji
+            H_beta2 = coef_vector_beta2 @ Fij
 
             # weights
             W0 = sW[ks] * splitW[j]  # scalar
             Wpair = W0 * (w1[:, None] * w2[None, :]).ravel()  # (P,)
             sqrtW = np.sqrt(Wpair)  # (P,)
 
-            B *= sqrtW[:, None]
-            A *= sqrtW[:, None]
+            scale = np.exp(n_idx * np.log(2.0 * 0.75) - 0.5 * gammaln(2 * n_idx + 1))[None, :]
 
-            S += B.T @ B
-            H += B.T @ A
+            # Assemble basis functions from power matrices
+            B = np.ones((r12_p.shape[0], matSize), dtype=np.float64) * (rAB_p[h_idx]*s_p[n_idx]*t_p[m_idx])[None, :] * scale
+            B *= r12_p[:, k_idx]
+            B *= sqrtW[:, None]
+            B *= np.exp(-delta*r12)[:, None]
+
+            mu_part_ij = mu1_p[:, i_idx] * mu2_p[:, j_idx]
+            mu_part_ji = mu1_p[:, j_idx] * mu2_p[:, i_idx]
+
+            B_ij = B * mu_part_ij
+            B_ji = B * mu_part_ji
+
+            B = B_ij + B_ji
+
+            Sl += B.T @ B
+            Hl_1 += B.T @ (H_1_ij * B_ij + H_1_ji * B_ji)
+            Hl_alpha += B.T @ (H_alpha_ij * B_ij + H_alpha_ji * B_ji)
+            Hl_beta += B.T @ (H_beta_ij * B_ij + H_beta_ji * B_ji)
+            Hl_alpha2 += B.T @ (H_alpha2 * (B_ij + B_ji))
+            Hl_alphabeta += B.T @ (H_alphabeta * (B_ij + B_ji))
+            Hl_beta2 += B.T @ (H_beta2 * (B_ij + B_ji))
+
+            # H += (B.T @ A) * np.exp(-2*alpha*s - 2*beta*rAB)
 
             # if abs(rA1 - 2) < 0.6 and abs(theta - 1 * np.pi / 4) < 0.2 and (BO or abs(rAB - 1.4) < 0.0001):  # change to 1/4*Pi to see electron
             #     print(theta, x1, y1, rA1, rB1)
@@ -536,50 +472,65 @@ for rAB in abRange:
             #     test_B = B  # Vectors of rows HP and P for later comparison of local energy deviation  # todo
 
             nrP += P
-        print(ks, s, nrP, time.time() - start)
 
-eigvals = np.linalg.eigvalsh(S)
+        S_layers[rAB, s] = Sl
+        H_1_layers[rAB, s] = Hl_1
+        H_alpha_layers[rAB, s] = Hl_alpha
+        H_alpha_2_layers[rAB, s] = Hl_alpha2
+        H_alpha_beta_layers[rAB, s] = Hl_alphabeta
+        H_beta_layers[rAB, s] = Hl_beta
+        H_beta_2_layers[rAB, s] = Hl_beta2
 
-# optional diagnostics
-print((eigvals))
-print("min eig:", np.abs(eigvals).min())
-print("max eig:", np.abs(eigvals).max())
-print("cond:", eigvals.max() / eigvals.min())
+        print(ks, rAB, s, nrP, time.time() - start)
 
+for alpha in frange(0.7, 0.86, 0.005):
+    S = np.zeros((matSize, matSize), dtype=np.float64)
+    H = np.zeros((matSize, matSize), dtype=np.float64)
 
-H, S = diag_rescale_generalized(H, S)
+    # alpha = 0.74
+    beta = 0
 
-print("After Diag rescaling:")
-eigvals = np.linalg.eigvalsh(S)
-print((eigvals))
-print("min eig:", np.abs(eigvals).min())
-print("max eig:", np.abs(eigvals).max())
-print("cond:", eigvals.max() / eigvals.min())
-
-# inspect_small_overlap_eigenvectors(S)
-
-h_idx = basis_idx[:, 0]
-k_idx = basis_idx[:, 1]
-n_idx = basis_idx[:, 2]
-m_idx = basis_idx[:, 3]
-i_idx = basis_idx[:, 4]
-j_idx = basis_idx[:, 5]
-
-E, C = eig(H, S)
-idx = np.argsort(E)
-E = np.real(E[idx])
-C = np.real(C[:, idx])
+    for (rAB, s), Sl in S_layers.items(): S += Sl * np.exp(-2*alpha*s - 2*beta*rAB)
+    for (rAB, s), Hl in H_1_layers.items(): H += Hl * np.exp(-2*alpha*s - 2*beta*rAB)
+    for (rAB, s), Hl in H_alpha_layers.items(): H += Hl * alpha * np.exp(-2*alpha*s - 2*beta*rAB)
+    for (rAB, s), Hl in H_alpha_2_layers.items(): H += Hl * alpha**2 * np.exp(-2*alpha*s - 2*beta*rAB)
+    for (rAB, s), Hl in H_alpha_beta_layers.items(): H += Hl * alpha*beta * np.exp(-2*alpha*s - 2*beta*rAB)
+    for (rAB, s), Hl in H_beta_layers.items(): H += Hl * beta * np.exp(-2*alpha*s - 2*beta*rAB)
+    for (rAB, s), Hl in H_beta_2_layers.items(): H += Hl * beta**2 * np.exp(-2*alpha*s - 2*beta*rAB)
 
 
-i = 0
-while i < len(E) and E[i] < 0:
-    ci = C[:, i]
-    ci = ci/ci[0]
-    # hp = test_A @ ci
-    # p = test_B @ ci
+    H, S = diag_rescale_generalized(H, S)
 
-    eps = np.linalg.norm(H @ ci - E[i] * (S @ ci)) / (np.linalg.norm(H @ ci) + 1e-30)
-    print(f"E[{i}] := {E[i]}: epsilon[{i}] := {eps}: "
-          # f"C[{i}] := {[f' + ({float(x)}) * rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}' for ii, x in enumerate(ci)]}")
-          f"C[{i}] := " + "".join( f" + ({float(x)})*rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}" for ii, x in enumerate(ci)) )
-    i += 1
+    eigvals = np.linalg.eigvalsh(S)
+    # print("After Diag rescaling:")
+    # print(eigvals)
+    # print("min eig:", np.abs(eigvals).min())
+    # print("max eig:", np.abs(eigvals).max())
+    print(f"\nalpha = {alpha}, cond: {eigvals.max() / eigvals.min():.3e}")
+
+    # inspect_small_overlap_eigenvectors(S)
+
+    h_idx = basis_idx[:, 0]
+    k_idx = basis_idx[:, 1]
+    n_idx = basis_idx[:, 2]
+    m_idx = basis_idx[:, 3]
+    i_idx = basis_idx[:, 4]
+    j_idx = basis_idx[:, 5]
+
+    E, C = eig(H, S)
+    idx = np.argsort(E)
+    E = np.real(E[idx])
+    C = np.real(C[:, idx])
+
+    i = 0
+    while i < len(E) and E[i] < 0:
+        ci = C[:, i]
+        ci = ci/ci[0]
+        # hp = test_A @ ci
+        # p = test_B @ ci
+
+        eps = np.linalg.norm(H @ ci - E[i] * (S @ ci)) / (np.linalg.norm(H @ ci) + 1e-30)
+        print(f"E[{i}] := {E[i]}: epsilon[{i}] := {eps}: "
+              # f"C[{i}] := {[f' + ({float(x)}) * rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}' for ii, x in enumerate(ci)]}")
+              f"C[{i}] := " + "".join( f" + ({float(x)})*rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}" for ii, x in enumerate(ci)) )
+        i += 1
