@@ -81,8 +81,8 @@ def build_SH_xyz_separate_V_fast(
     # alpha = 0.75,
     # beta = 0.0,  # 0.1: quite alright (epsilon[0] := 0.191, no longer duplicated); 0.2 (really well behaving functions; epsilon[0] := 0.1443, all solution functions have about the same shape)
     # delta = 0.0,  # 0.5 worse than 0.1  # Careful - not currently implemented in maple
-    Rmax=6,
-    rStep=0.11,  # todo: resulting wave function shape is *incredibly* dependent on these values. Why? Can I make them denser at closer r still?
+    Rmax=5,
+    rStep=0.2,  # todo: resulting wave function shape is *incredibly* dependent on these values. Why? Can I make them denser at closer r still?
     R1max=12,  # Maximal radius for radial scanning of rA1
     sigma=3  # Exponent of the rA1 sampling distribution: u1 in [0.1, sqrt(R1max)], rA1=u1^sigma (higher sigma => more points near 0)
 ):
@@ -319,7 +319,7 @@ def build_SH_xyz_separate_V_fast(
                 s = s1 + s2
                 t = (s1-s2) * inv_rAB * 0.5
                 mu1 = (rA1-rB1) * inv_rAB
-                print(min(r12), rA1, min(rA2), rB1, min(rB2), mu1, min(abs(mu2)))  # Todo: same for all s - should it?
+                # print(min(r12), rA1, min(rA2), rB1, min(rB2), mu1, min(abs(mu2))
 
                 if abs(mu1) < 0.0001: continue
 
@@ -571,8 +571,9 @@ while i < len(E) and E[i] < 0:
 
     eps = np.linalg.norm(H @ ci - E[i] * (S @ ci)) / (np.linalg.norm(H @ ci) + 1e-30)
     print(f"E[{i}] := {E[i]}: epsilon[{i}] := {eps}: "
-          # f"C[{i}] := {[f' + ({float(x)}) * rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}' for ii, x in enumerate(ci)]}")
-          f"C[{i}] := " + "".join( f" + ({float(x)})*rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}" for ii, x in enumerate(ci)) )
+    #       # f"C[{i}] := {[f' + ({float(x)}) * rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}' for ii, x in enumerate(ci)]}")
+    #       f"C[{i}] := " + "".join( f" + ({float(x)})*rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}" for ii, x in enumerate(ci)) )
+    f"C[{i}] := " + ",".join(f" {float(x)}" for ii, x in enumerate(ci)))
     i += 1
 
 

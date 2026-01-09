@@ -4,6 +4,7 @@ from matplotlib.widgets import Slider
 import matplotlib.tri as mtri
 import matplotlib as mpl
 
+
 def mask_closest_phi(phi, phi_target, rtol=1e-12, atol=1e-12):
     """
     Select all points whose phi equals the sampled phi value
@@ -67,7 +68,7 @@ def plot_mu2_with_alpha_beta(
 
     # numerics / plot options
     only_negative_E=True,
-    eps=1e-12,
+    eps=1e-16,
     mu2_rtol=1e-12,
     mu2_atol=1e-12,
     zlim_eloc=(-3, 0),     # view only
@@ -178,6 +179,18 @@ def plot_mu2_with_alpha_beta(
         idx = np.argsort(np.real(E))
         E = np.real(E[idx])
         C = np.real(C[:, idx])
+        scale = C[0, :]
+        scale[scale == 0.] = 1.0
+        C /= scale
+
+        # print solution
+        i = 0
+        ci = C[:, i]
+        ci = ci / ci[0]
+        eps = np.linalg.norm(H @ ci - E[i] * (S @ ci)) / (np.linalg.norm(H @ ci) + 1e-30)
+        print(f"E[{i}] := {E[i]}: epsilon[{i}] := {eps}: "
+              # f"C[{i}] := {[f' + ({float(x)}) * rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}' for ii, x in enumerate(ci)]}")
+              f"C[{i}] := " + ",".join(f" {float(x)}" for ii, x in enumerate(ci)))
 
         if only_negative_E:
             sol_idx = np.where(E < 0)[0]
@@ -347,6 +360,11 @@ def plot_mu2_with_alpha_beta(
         denom = np.where(np.abs(psi) < eps, np.nan, psi)
         Eloc = Hpsi / denom
 
+        # quality metric: SSE of (Eloc - E) over available points
+        E_i = float(E[i_real])
+        diff = Eloc - E_i
+        epsilon = float(np.nansum(diff * diff))
+
         # clear axes
         ax_phi.clear()
         ax_eloc.clear()
@@ -372,7 +390,8 @@ def plot_mu2_with_alpha_beta(
             f"ψ | alpha={alpha:.6f} beta={beta:.6f}  cond(S)={cache_entry['condS']:.3e}\n"
             f"i={i_real}  E={E[i_real]:.10f}  mu2={mu_val:.6g}"
         )
-        ax_eloc.set_title(f"Eloc | i={i_real}  E={E[i_real]:.10f}  mu2={mu_val:.6g}")
+        # ax_eloc.set_title(f"Eloc | i={i_real}  E={E[i_real]:.10f}  mu2={mu_val:.6g}")
+        ax_eloc.set_title(f"Eloc | i={i_real}  epsilon={epsilon:.10e}  mu2={mu_val:.6g}")
 
         ax_phi.set_xlabel("x1"); ax_phi.set_ylabel("y1"); ax_phi.set_zlabel("ψ")
         ax_eloc.set_xlabel("x1"); ax_eloc.set_ylabel("y1"); ax_eloc.set_zlabel("Eloc")
@@ -410,7 +429,7 @@ def plot_mu2_with_alpha_beta(
     fig.canvas.mpl_connect("key_press_event", on_key)
 
     redraw()
-    plt.show()
+    plt.show(block=True)
 
 
 def trisurf_colored(ax, tri, z, cmap_name="viridis", vmin=None, vmax=None):
@@ -751,7 +770,7 @@ def plot_phi_and_local_energy_mu2(
             rho = 0.5 * rAB * np.sqrt((mu * mu - 1.0) * (1.0 - mu_val * mu_val))
             y2 = rho * np.cos(phi)
             z2 = rho * np.sin(phi)
-            print(x2, y2, z2)
+            # print(x2, y2, z2)
 
             # Draw e2 position
 

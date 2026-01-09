@@ -59,7 +59,6 @@ def build_s_shells(rAB, Ks, s_max, gamma=3.0):
 
     return s, ws
 
-
 def split_s(s, rAB, Ku):
     """
     Deterministic split of total s into s1,s2.
@@ -76,6 +75,7 @@ def split_s(s, rAB, Ku):
     w_split = (s - 2.0*rAB) * wu
 
     return s1, s2, w_split
+
 
 def shell_area_weight(s1, s2, rAB):
     shell_area_1 = 4*np.pi*((s1 / rAB)**2 - 1/3)
@@ -129,15 +129,21 @@ k_max = 8
 n_max = 8
 m_max = 8
 ij_max = 8
-total_max = 5
-delta = 0
+total_max = 3
+delta = 0.1
 
-plot_phi_target = np.pi*0.4
+# Todo: allow cusp-enabling functions - maybe s^-1 would help? Go back to s1, s2? (^-1, or more ideally ln)?
+
+# delta = 0.1: E[0] := -1.174474883468479:
+# E[0] := -1.1744788198234721 at delta=0.1, alpha=0.695
+
+plot_phi_target = np.pi/2*0.1
 plot_rAB_target = 1.4
-plot_s2_target = 8.023354 - plot_rAB_target  # todo: make sure it's alwasy very close to an actual s value; so that the space around the nuclei is sampled well in the plot.
+plot_s2_target = 8
 
 nMu = 24
-nS = 30
+nS = 50
+sMax = 50
 
 use_delta = delta != 0
 
@@ -155,8 +161,8 @@ if BO:  # Reset if not used
 rows = []
 for h in frange(0, h_max, 1):
     for k in frange(0, k_max, 1):
-        for n in frange(0, n_max, 1):  # careful: Whenever using negative indices, adjust power_table call accordingly.
-            for m in range(m_max + 1):
+        for n in frange(0, n_max, 1):
+            for m in range(m_max + 1):  # careful: Whenever using negative indices, adjust power_table call accordingly.
                 for i in range(ij_max + 1):
                     for j in range(i + 1):
 
@@ -225,7 +231,10 @@ plot_chunks_A_alphabeta = []
 plot_chunks_A_beta2 = []
 
 for rAB in abRange:
-    s_shells, sW = build_s_shells(rAB, Ks=nS, s_max=30.0)
+    s_shells, sW = build_s_shells(rAB, Ks=nS, s_max=sMax, gamma = 3.0)
+    idx = np.abs(s_shells - plot_s2_target - plot_rAB_target).argmin()
+    plot_s2_target = s_shells[idx] - plot_rAB_target - 0.0001  # Ensure small s1 values are included in the plot-sampling
+    print(f"s2 = {plot_s2_target}")
 
     for ks, s in enumerate(s_shells):
 
@@ -235,8 +244,6 @@ for rAB in abRange:
         inv_s = 1.0 / s
         inv_s_2 = inv_s * inv_s
         inv_rAB_2 = inv_rAB * inv_rAB
-        s_p = s ** np.arange(0, n_max+1)  # scalar power tables
-        rAB_p = rAB ** np.arange(0, k_max+1)
 
         s1_vals, s2_vals, splitW = split_s(s, rAB, Ku=10)
 
@@ -301,7 +308,6 @@ for rAB in abRange:
             inv_t_2 = inv_t * inv_t
             inv_rAB_s = inv_rAB * inv_s
             inv_rAB_t = inv_rAB * inv_t
-            t_p = t ** np.arange(0, m_max+1)
 
             P1 = rA1.size
             P2 = rA2.size
@@ -468,7 +474,7 @@ for rAB in abRange:
             scale = np.exp(n_idx * np.log(2.0 * 0.75) - 0.5 * gammaln(2 * n_idx + 1))[None, :]
 
             # Assemble basis functions from power matrices
-            B = np.ones((r12_p.shape[0], matSize), dtype=np.float64) * (rAB_p[h_idx]*s_p[n_idx]*t_p[m_idx])[None, :] * scale
+            B = np.ones((r12_p.shape[0], matSize), dtype=np.float64) * (rAB**h_idx*s**n_idx*t**m_idx)[None, :] * scale
             B *= r12_p[:, k_idx]
             B *= np.exp(-delta*r12)[:, None]
 
@@ -575,7 +581,7 @@ plot_mu2_with_alpha_beta(
     plot_s2_target=plot_s2_target,
     plot_phi_target=plot_phi_target,
 
-    alpha_values=np.arange(0.70, 0.81, 0.01),
+    alpha_values=np.arange(0.6, 1.3, 0.005),
     beta_values=np.array([0.0]),
 
     zlim_eloc=(-3, 0),
