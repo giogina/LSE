@@ -1,554 +1,70 @@
 import time
-from distutils.command.sdist import sdist
-
 import numpy as np
-from scipy.linalg import eig
 from scipy.special import gammaln
-
-from plot import plot_wavefn_and_local_energy
-from util import *
-import math
-
-# from r1_matrix import *
-from r1_matrix_LP import *
-# from r1_matrix_Legendre_26 import *
-# from r1_matrix_Legendre_52 import *
-# from r1_matrix_Legendre_126 import *
-# from r1_matrix_monomial_127 import *
-# from r1_matrix_Laguerre_127 import *
-
-# Helper to mimic Maple's floating for-loops
-def frange(start, stop, step):
-    x = start
-    if step > 0:
-        while x <= stop + 1e-12:
-            yield x
-            x += step
-    else:
-        while x >= stop - 1e-12:
-            yield x
-            x += step
-
-
-# def power_table(x, p_max):
-#     # Returns matrix with x^n for columns n=0..p_max
-#     x = np.asarray(x, dtype=np.float64)
-#     out = np.empty((x.shape[0], p_max+1), dtype=np.float64) if x.ndim else np.empty((p_max+1,), dtype=np.float64)
-#     out[..., 0] = 1.0
-#     for e in range(1, p_max+1):
-#         out[..., e] = out[..., e-1] * x
-#     return out
-
-
-def power_table(x, p_max, p_min=0):
-    x = np.asarray(x, dtype=np.float64)
-
-    n_pos = p_max + 1              # includes 0
-    n_neg = -p_min if p_min < 0 else 0
-    n_cols = n_pos + n_neg
-
-    out = np.empty((x.shape[0], n_cols) if x.ndim else (n_cols,), dtype=np.float64)
-
-    # s^0
-    out[..., 0] = 1.0
-
-    # s^1 ... s^p_max
-    for e in range(1, p_max + 1):
-        out[..., e] = out[..., e - 1] * x
-
-    # s^p_min ... s^-1
-    if p_min < 0:
-        col = p_max + 1
-        out[..., col] = x ** p_min
-        for e in range(p_min + 1, 0):
-            out[..., col + 1] = out[..., col] * x
-            col += 1
-
-    return out
-
-
-
-# Todo: Ideas:
-#  * treat rAB as the scaling length (exponent saved separately) - then use Kronecker products to quickly assemble enhanced S&H
-#  * Also save HP components of alpha^2, alpha, 1 separately, AND then - assemble H with different alpha values directly to test for optimal alpha!
-#  * Make grid tighter near nuclei (maybe just one of them) for better sampling?
-
-# Todo: Summarize current workings in a PDF (so I don't forget all the stuff that's already implemented)
-
-# maybe it optimizes outside? Try reducing R1max, or the minimum values.
-def build_SH_xyz_separate_V_fast(
-    # alpha = 0.95/1.4,
-    # alpha = 0.75,
-    # beta = 0.0,  # 0.1: quite alright (epsilon[0] := 0.191, no longer duplicated); 0.2 (really well behaving functions; epsilon[0] := 0.1443, all solution functions have about the same shape)
-    # delta = 0.0,  # 0.5 worse than 0.1  # Careful - not currently implemented in maple
-    Rmax=5,
-    rStep=0.2,  # todo: resulting wave function shape is *incredibly* dependent on these values. Why? Can I make them denser at closer r still?
-    R1max=12,  # Maximal radius for radial scanning of rA1
-    sigma=3  # Exponent of the rA1 sampling distribution: u1 in [0.1, sqrt(R1max)], rA1=u1^sigma (higher sigma => more points near 0)
-):
-    # E[0] := -1.174814627652896: epsilon[0] := 328.86396264265125:
-
-    # Coefficients not really getting smaller to the end, again.
-
-    BO = True
-
-    # No giant peak at the electron: E[0] := -1.1745053541808201; BUT not very smooth at large r
-    #     h_max = 6
-    #     k_max = 5
-    #     n_max = 6
-    #     m_max = 6
-    #     ij_max = 6
-    #     n_min = 0  # for power table
-    #     total_max = 6
-    # alpha_grid = np.array([0.74, 1.2, 2.0, 2.5])
-    # alpha_thrs = np.array([2, 4, 6])               with ai = np.searchsorted(alpha_thrs, n, side="left")
-
-
-    # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
-    h_max = 5
-    k_max = 5
-    n_max = 5
-    m_max = 5
-    ij_max = 5
-    n_min = 0  # for power table
-    # n_min = -k_max-m_max  # for power table
-    total_max = 5
-
-    # alpha_grid = np.array([0.75, 2, 5])
-    # alpha_thrs = np.array([2, 4, 6])  #E[0] := -1.1742607464862156:
-    # alpha_grid = np.array([0.75])
-    # alpha_thrs = np.array([])  # E[0] := -1.1742766567556162: but way worse local energy, cond 10^13
-    # alpha_grid = np.array([0.75, 2.0])
-    # alpha_thrs = np.array([2])  # E[0] := -1.174512485344357:, pretty good local energy! cond 10^14
-    # alpha_grid = np.array([0.74, 1.2, 2])
-    # alpha_thrs = np.array([2, 4])  # E[0] := -1.1740258261028165: Worse energy but smooooth LE! 10^13
-    # alpha_grid = np.array([0.74, 1.2, 2, 2.5])
-    # alpha_thrs = np.array([2, 4, 5])  # E[0] := -1.1744567099820111: Better energy, okayish LE
-    # alpha_grid = np.array([0.74, 1.2, 2.0, 2.5])
-    # alpha_thrs = np.array([2, 4, 5])  # E[0] := -1.174466890469607
-    # alpha_grid = np.array([0.55, 0.74, 1.2, 2.0, 2.5]) # E[0] := -1.174473374118624: (delta = 0.7)
-    # alpha_grid = np.array([0.74, 1.2, 2.0, 3.0, 3.6])
-    # alpha_thrs = np.array([2, 4, 5, 6])
-    alpha_grid = np.array([0.75])
-    alpha_thrs = np.array([])  # degrees up to which each alpha applies (always one shorter than _grid)
-    beta_grid = np.array([0])
-    beta_thrs = np.array([])
-    delta_grid = np.array([0])  # TODO: this gives a reasonable-looking (but wide) shape; just crossing 0 instead of approaching it.
-    delta_thrs = np.array([])     #    But: function is not smooth at x=0?! Should I adjust that in the ansatz? Or is it due to the electron position and okay?
-                                  #      Plot both parts (from different electron positions?)
-# 0.74: -1.1744386278080048, cond 9
-
-    # TODO: try negative s powers again - did I fully test that after fixing?
-
-# TODO: Recover logic used by the maple exports previously.
-#  All inv_s etc are multiplied by n etc such that there are never negative powers => May as well expand them and return to r1's, r2's, r12-dependent logic.
-
-
-    # TODO: See nice_at_e1_sol !
-    #  Just fixed i-j exchange bug - try again to use gamma = 1.8 for k=1
-
-    # (Speedup factor 1.5?)
-
-    if BO:  # Reset if not used
-        h_max = 0  # avoid rAB dependence
-        beta_grid = np.array([0])
-        beta_thrs = np.array([])
-
-    use_beta = not (beta_thrs.size == 0 and beta_grid[0] == 0)
-    use_delta = not (delta_thrs.size == 0 and delta_grid[0] == 0)
-
-    print(use_beta, use_delta)
-
-
-    # E[0] := -1.1627930436517466: epsilon[0] := 2.9937579205389784e-05
-    # alpha = 0.75, beta=0, gamma=0
-    # h_max = 2
-    # k_max = 2
-    # n_max = 2
-    # m_max = 4
-    # ij_max = 4
-    # total_max = 4
-# n-k, -1.1743159541558044 (try different alpha dependence too)
-    rows = []
-    for h in frange(0, h_max, 1):
-        for k in frange(0, k_max, 1):
-            for n in frange(0, n_max, 1):  # careful: Whenever using negative indices, adjust power_table call accordingly.
-                for m in range(m_max + 1):
-                    for i in range(ij_max + 1):
-                        for j in range(i + 1):
-
-                            # constraints
-                            if (i + j) % 2 != 0: continue
-                            if m % 2 != 0: continue
-                            t = h + k + n + m + i + j
-                            if t > total_max: continue
-                            ai = np.searchsorted(alpha_thrs, n, side="left")  # Smallest index for which t<=alpha_thrs[ai]
-                            bi = np.searchsorted(beta_thrs, h, side="left")
-                            di = np.searchsorted(delta_thrs, k, side="left")
-                            rows.append((h, k, n, m, i, j, ai, bi, di))  #-k-m
-
-    basis_idx = np.array(rows, dtype=np.int16)
-
-    # Shorthands for later use (no copies)
-    h_idx = basis_idx[:, 0]
-    k_idx = basis_idx[:, 1]
-    n_idx = basis_idx[:, 2]
-    m_idx = basis_idx[:, 3]
-    i_idx = basis_idx[:, 4]
-    j_idx = basis_idx[:, 5]
-    alpha_idx = basis_idx[:, 6]
-    beta_idx = basis_idx[:, 7]
-    delta_idx = basis_idx[:, 8]
-
-    h = h_idx.astype(np.float64)
-    k = k_idx.astype(np.float64)
-    n = n_idx.astype(np.float64)
-    m = m_idx.astype(np.float64)
-    i = i_idx.astype(np.float64)
-    j = j_idx.astype(np.float64)
-    alpha_b = alpha_grid[alpha_idx].astype(np.float64)
-    beta_b = beta_grid[beta_idx].astype(np.float64)
-    delta_b = delta_grid[delta_idx].astype(np.float64)
-
-    Fij = np.stack([n * n - n, n, k * n, n * m, n * (m - h), n * i, n * j,
-                     m * m, m, m * k, m * i, m * j, m * (i + j - h),
-                     i * i - i, i, i * j, i * k, i * h,
-                     j * j - j, j, j * k, j * h,
-                     h * h + h, h, k * k + k, k,
-                     np.ones_like(n)], axis=0)
-    Fji = np.stack([n * n - n, n, k * n, n * m, n * (m - h), n * j, n * i,
-                    m * m, m, m * k, m * j, m * i, m * (j + i - h),
-                    j * j - j, j, j * i, j * k, j * h,
-                    i * i - i, i, i * k, i * h,
-                    h * h + h, h, k * k + k, k,
-                    np.ones_like(n)], axis=0)
-
-    matSize = h_idx.size
-    print(f"MatSize = {matSize}")
-
-    nrP = 0
-
-    # Non-zero start values necessary to avoid division by 0 (if mu2=0 or rB2=0)
-    x2_vals = np.linspace(0.00001, np.floor(Rmax / rStep) * rStep, int(np.floor(Rmax / rStep)) + 1)
-    y2_vals = np.linspace(0, np.floor(Rmax / rStep) * rStep, int(np.floor(Rmax / rStep)) + 1)
-    z2_vals = np.linspace(0.001, np.floor(Rmax / rStep) * rStep, int(np.floor(Rmax / rStep)) + 1)  # slight offset prevents rX2=0 (all other points are in (x,y)-plane)  # todo: temp
-    X2s, Y2s, Z2s = np.meshgrid(x2_vals, y2_vals, z2_vals, indexing="ij")
-    x2s = X2s.ravel()
-    y2s = Y2s.ravel()
-    z2s = Z2s.ravel()
-
-    if BO:
-        M1M = 1
-        M_inv = 0
-    else:
-        M = 1836.153
-        M1M = (M+1) / M
-        M_inv = 1 / M
-
-    start = time.time()
-
-    S = np.zeros((matSize, matSize), dtype=np.float64)
-    H = np.zeros((matSize, matSize), dtype=np.float64)
-
-    test_A = None
-    test_B = None
-
-    # 1.3: -1.172233875122012
-    # 1.35 -1.1719523463883157
-    # 1.38 -1.1746696369875254
-    # 1.4: -1.1747651120383216
-    # 1.41 -1.1747227721042222
-    # 1.43 -1.1745027866756477
-    # 1.45: -1.1741347875229644:
-    # 1.5: -1.172763095219384
-
-    abRange = frange(1.4, 1.4, 0.2) if BO else frange(0.4, 3.0, 0.2)
-
-    for rAB in abRange:
-        xB = rAB/2
-        rA2 = np.sqrt((x2s + rAB / 2) ** 2 + y2s ** 2 + z2s ** 2)
-        rB2 = np.sqrt((x2s - rAB / 2) ** 2 + y2s ** 2 + z2s ** 2)
-
-        # r2_dependencies = np.asarray(r2deps)
-        # R2 = build_R2(rA2_vals, rB2_vals, r2_dependencies)  # requires: MInfTest2.mw codeGeneration (bottom of file)
-
-
-        # rAB, e2-only primitives
-        inv_rAB = 1.0 / rAB
-        inv_rA2 = 1.0 / rA2
-        inv_rB2 = 1.0 / rB2
-        rA2_2 = rA2 * rA2
-        rB2_2 = rB2 * rB2
-        rAB_2 = rAB * rAB
-        s2 = rA2+rB2
-        mu2 = (rA2-rB2) * inv_rAB
-        inv_mu2 = 1.0 / mu2
-        inv_rAB_2 = inv_rAB * inv_rAB
-        inv_mu2_2 = inv_mu2 * inv_mu2
-        v2 = inv_rA2 + inv_rB2
-        cos2AB = (rA2_2 + rAB_2 - rB2_2) * inv_rA2 * inv_rAB * 0.5
-        cos2BA = (rAB_2 + rB2_2 - rA2_2) * inv_rAB * inv_rB2 * 0.5
-        cosA2B = (rA2_2 - rAB_2 + rB2_2) * inv_rA2 * inv_rB2 * 0.5
-        c12 = M_inv*(cos2AB-cos2BA)
-
-        # Power tables
-        rAB_p = power_table(rAB, h_max)
-        mu2_p = power_table(mu2, ij_max)
-
-        for u1 in frange(rStep/2, np.sqrt(R1max), rStep):
-            rA1 = u1**sigma
-            weight=rA1**(2-1/sigma)
-            print("rAB =", rAB, "rA1 =", rA1, nrP, f"{int(10*(time.time() - start))/10}s")
-            for theta in np.linspace(0, 2*np.pi, 64, endpoint=False): # Slight offset to avoid hitting nucleus B
-                x1 = rA1*np.cos(theta)-xB
-                y1 = rA1*np.sin(theta)
-                rB1 = np.sqrt(((x1-xB)**2+y1**2))
-                if abs(rA1)<0.001 or abs(rB1)<0.001: continue  # todo: temp 01
-
-                # Compute primitives
-                r12 = np.sqrt((x1 - x2s) ** 2 + (y1 - y2s) ** 2 + z2s ** 2)  # vector of r12 values for all e2 positions
-                inv_r12 = 1.0 / r12
-                inv_rA1 = 1.0 / rA1
-                inv_rB1 = 1.0 / rB1
-
-                r12_2 = r12 * r12
-                rA1_2 = rA1 * rA1
-                rB1_2 = rB1 * rB1
-
-                s1 = rA1+rB1
-                s = s1 + s2
-                t = (s1-s2) * inv_rAB * 0.5
-                mu1 = (rA1-rB1) * inv_rAB
-                # print(min(r12), rA1, min(rA2), rB1, min(rB2), mu1, min(abs(mu2))
-
-                if abs(mu1) < 0.0001: continue
-
-                inv_s = 1/s
-                inv_t = 1/t
-                inv_mu1 = 1/mu1
-
-                inv_r12_2 = inv_r12 * inv_r12
-                inv_s_2 = inv_s * inv_s
-                inv_t_2 = inv_t * inv_t
-                inv_mu1_2 = inv_mu1 * inv_mu1
-
-                v1 = inv_rA1 + inv_rB1
-                v12 = v1 + v2
-
-                cos12A = (r12_2 - rA1_2 + rA2_2) * inv_r12 * inv_rA2 * 0.5
-                cos12B = (r12_2 - rB1_2 + rB2_2) * inv_r12 * inv_rB2 * 0.5
-                cos1A2 = (rA1_2 + rA2_2 - r12_2) * inv_rA1 * inv_rA2 * 0.5
-                cos1AB = (rA1_2 + rAB_2 - rB1_2) * inv_rA1 * inv_rAB * 0.5
-                cos1B2 = (rB1_2 + rB2_2 - r12_2) * inv_rB1 * inv_rB2 * 0.5
-                cos1BA = (rAB_2 + rB1_2 - rA1_2) * inv_rAB * inv_rB1 * 0.5
-                cos21A = (r12_2 + rA1_2 - rA2_2) * inv_r12 * inv_rA1 * 0.5
-                cos21B = (r12_2 + rB1_2 - rB2_2) * inv_r12 * inv_rB1 * 0.5
-                cosA1B = (rA1_2 - rAB_2 + rB1_2) * inv_rA1 * inv_rB1 * 0.5
-
-                # Recurring combinations
-                c1 = cos12A + cos12B + cos21A + cos21B
-                c2 = cosA1B + cosA2B
-                c3 = (cos12A - cos21B + cos12B - cos21A)
-                c4 = cos21A - cos21B
-                c5 = cos12A - cos12B
-                c6 = cosA2B - cosA1B
-                c7 = M_inv*(cos1A2 + cos1B2)
-                c8 = M_inv*(cos1AB + cos1BA + cos2AB + cos2BA)
-                c9 = M_inv*(cos1AB + cos1BA - cos2AB - cos2BA)
-                c10 = M_inv*(cos1A2-cos1B2)
-                c11 = M_inv*(cos1AB-cos1BA)
-
-                inv_rAB_s = inv_rAB * inv_s
-                inv_rAB_t = inv_rAB * inv_t
-
-                # See precalc.mw for derivation
-
-                # Coefficients of: [n^2, n, k*n, n*m, m^2, m, m*k, i^2-i, i, i*k, j^2-j, j, j*k, k^2 + k, k, 1]
-                c_n2 = -( 2.0*M1M + c2 + c7 ) * inv_s_2  # n^2 - n
-                c_n  = - M1M*v12 * inv_s  # n
-                c_n_alpha = ( 2.0*(M1M*2.0 + c2 + c7) ) * inv_s  # n
-                c_kn = -c1 * inv_r12 * inv_s  # k*n
-                c_nm = c6 * inv_t  * inv_rAB_s  # n*m
-                c_nmh= c8 * inv_rAB_s  # n*(m-h)
-                c_ni = (c8 - c10 * inv_mu1) * inv_rAB_s  # n*i
-                c_nj = (c8 - c10 * inv_mu2) * inv_rAB_s # n*j
-                c_m2 = -0.25*( 2*M1M + c2 - c7)*inv_t_2*inv_rAB_2 - M_inv*inv_rAB_2 + 0.5*c9*inv_rAB_2*inv_t  # m^2
-                c_m  = 0.5* M1M*(v2-v1) * inv_rAB_t + 0.25*( M1M*2.0 + c2 - c7 )*inv_t_2*inv_rAB_2 + M_inv*inv_rAB_2  # m
-                c_m_alpha = - c6 * inv_rAB_t - c8 * inv_rAB
-                c_mk = 0.5 * c3 *inv_r12*inv_rAB_t  # m*k
-                c_mi = (c11 + 0.5*c10*inv_t) * inv_mu1 * inv_rAB_2  # m*i
-                c_mj = (c12 - 0.5*c10*inv_t) * inv_mu2 * inv_rAB_2  # m*j
-                c_mijh = ( 0.5 * c9 * inv_t - 2.0*M_inv ) * inv_rAB_2  # m*(i+j-h)
-                c_i2 =  (( -M1M  + cosA1B )*inv_mu1_2*inv_rAB_2  + c11*inv_mu1*inv_rAB_2- M_inv*inv_rAB_2) * np.ones_like(c_n)  # i^2-i
-                c_i  = ( -M1M*(inv_rA1-inv_rB1)  + c11*inv_rAB ) *inv_mu1*inv_rAB  * np.ones_like(c_n) #i
-                c_i_alpha  = ( c10*inv_mu1 - c8 ) *inv_rAB * np.ones_like(c_n)  #i
-                c_ij = ( -c7*inv_mu1*inv_mu2 + c11*inv_mu1 + c12*inv_mu2 - 2.0*M_inv ) * inv_rAB_2  # i*j
-                c_ik = -c4 * inv_r12 * inv_mu1 * inv_rAB  # i*k
-                c_ih = ( -c11*inv_mu1 + 2.0*M_inv ) * inv_rAB_2 * np.ones_like(c_n)  # i*h
-                c_j2 = ( -M1M + cosA2B )*inv_mu2_2*inv_rAB_2  + c12*inv_mu2*inv_rAB_2 - M_inv*inv_rAB_2  # j^2-j
-                c_j  = ( -M1M*(inv_rA2-inv_rB2) + c12*inv_rAB)*inv_mu2*inv_rAB # j
-                c_j_alpha  = ( c10*inv_mu2 - c8)*inv_rAB  # j
-                c_jk = -c5*inv_r12*inv_mu2*inv_rAB  # j*k
-                c_jh = ( -c12*inv_mu2 + 2.0*M_inv ) * inv_rAB_2  # j*h
-                c_h2 = -M_inv*inv_rAB_2 * np.ones_like(c_n)  # h^2 + h
-                c_h_alpha = c8 * inv_rAB  * np.ones_like(c_n) # h
-                c_k2 = - inv_r12_2  # k^2 + k
-                c_k_alpha  = c1 * inv_r12  # k
-                c_1_alpha  = M1M*v12
-                c_1_alpha2  = -( 2*M1M + c2 + c7 )
-
-                if use_beta:
-                    c_n_beta = c8 * inv_s  # n
-                    c_m_beta = 0.5*c9*inv_rAB_t - 2.*M_inv*inv_rAB
-                    c_i_beta  = (c11*inv_mu1 - 2.*M_inv) * inv_rAB * np.ones_like(c_n)  #i
-                    c_j_beta  = (c12*inv_mu2 - 2.*M_inv) * inv_rAB  # j
-                    c_h_beta  = 2.0 * M_inv * inv_rAB  * np.ones_like(c_n) # h
-                    c_1_alphabeta = -c8
-                    c_1_beta =   M_inv*2.*inv_rAB * np.ones_like(c_n)
-                    c_1_beta2 =  -M_inv * np.ones_like(c_n)
-
-                if use_delta:
-                    c_m_delta = - 0.5*c3*inv_rAB_t
-                    c_n_delta = c1 * inv_s  # n
-                    c_i_delta = c4 * inv_mu1*inv_rAB * np.ones_like(c_n) # i
-                    c_j_delta = c5 * inv_mu2*inv_rAB  # j
-                    c_1_alphadelta = -c1
-                    c_1_delta =  2.0*inv_r12
-                    c_1_delta2 =  -1.0 * np.ones_like(c_n)
-                    c_k_delta  = 2.0 * inv_r12  # k
-
-                zero = np.zeros_like(r12)
-                coef_vector_1 = np.stack([c_n2, c_n, c_kn, c_nm, c_nmh, c_ni, c_nj, c_m2, c_m, c_mk, c_mi, c_mj, c_mijh, c_i2, c_i, c_ij, c_ik, c_ih, c_j2, c_j, c_jk, c_jh, c_h2, zero, c_k2, zero, zero], axis=1)
-                coef_vector_alpha = np.stack([zero, c_n_alpha, zero, zero, zero, zero, zero, zero, c_m_alpha, zero, zero, zero, zero, zero, c_i_alpha, zero, zero, zero, zero, c_j_alpha, zero, zero, zero, c_h_alpha, zero, c_k_alpha, c_1_alpha], axis=1)
-                coef_vector_alpha2 = np.stack([zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_1_alpha2], axis=1)
-                if use_beta:
-                    coef_vector_beta = np.stack([zero, c_n_beta, zero, zero, zero, zero, zero, zero, c_m_beta, zero, zero, zero, zero, zero, c_i_beta, zero, zero, zero, zero, c_j_beta, zero, zero, zero, c_h_beta, zero, zero, c_1_beta], axis=1)
-                    coef_vector_alphabeta = np.stack([zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_1_alphabeta], axis=1)
-                    coef_vector_beta2 = np.stack([zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_1_beta2], axis=1)
-                if use_delta:
-                    coef_vector_delta = np.stack([zero, c_n_delta, zero, zero, zero, zero, zero, zero, c_m_delta, zero, zero, zero, zero, zero, c_i_delta, zero, zero, zero, zero, c_j_delta, zero, zero, zero, zero, zero, c_k_delta, c_1_delta], axis=1)
-                    coef_vector_alphadelta = np.stack([zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_1_alphadelta], axis=1)
-                    coef_vector_delta2 = np.stack([zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_1_delta2], axis=1)
-
-
-                # Base (no parameters)
-                Hpoly_ij = coef_vector_1 @ Fij
-                Hpoly_ji = coef_vector_1 @ Fji
-
-                Hpoly_ij += (coef_vector_alpha @ Fij) * alpha_b[None, :]
-                Hpoly_ji += (coef_vector_alpha @ Fji) * alpha_b[None, :]
-
-                tmp = coef_vector_alpha2 @ Fij
-                Hpoly_ij += tmp * (alpha_b[None, :] ** 2)
-                Hpoly_ji += tmp * (alpha_b[None, :] ** 2)
-
-                if use_beta:
-                    Hpoly_ij += (coef_vector_beta @ Fij) * beta_b[None, :]
-                    Hpoly_ji += (coef_vector_beta @ Fji) * beta_b[None, :]
-
-                    tmp = coef_vector_beta2 @ Fij
-                    Hpoly_ij += tmp * (beta_b[None, :] ** 2)
-                    Hpoly_ji += tmp * (beta_b[None, :] ** 2)
-
-                    tmp = coef_vector_alphabeta @ Fij
-                    Hpoly_ij += tmp * (alpha_b[None, :] * beta_b[None, :])
-                    Hpoly_ji += tmp * (alpha_b[None, :] * beta_b[None, :])
-
-                if use_delta:
-                    Hpoly_ij += (coef_vector_delta @ Fij) * delta_b[None, :]
-                    Hpoly_ji += (coef_vector_delta @ Fji) * delta_b[None, :]
-
-                    tmp = coef_vector_delta2 @ Fij
-                    Hpoly_ij += tmp * (delta_b[None, :] ** 2)
-                    Hpoly_ji += tmp * (delta_b[None, :] ** 2)
-
-                    tmp = coef_vector_alphadelta @ Fij
-                    Hpoly_ij += tmp * (alpha_b[None, :] * delta_b[None, :])
-                    Hpoly_ji += tmp * (alpha_b[None, :] * delta_b[None, :])
-
-                # Test vs. derivation file
-                # print(f"r12={r12[5]}, rAB={rAB}, rA1={rA1}, rA2={rA2[5]}, rB1={rB1}, "
-                #       f"rB2={rB2[5]}, {[float(z[5]) for z in Mplus1overMPart]}, {( -M1M  + cosA1B )*inv_mu1_2*inv_rAB_2  + c11*inv_mu1*inv_rAB_2- M_inv*inv_rAB_2}*(i^2-i)"
-                #       f" + {( -c11*inv_mu1 + 2.0*M_inv ) * inv_rAB_2} *i*h  {-M_inv*inv_rAB_2}*h^2")
-
-                # Symmetry requirements: m even, i+j even, symmetrize to phi_i_j+phi_j_i.
-
-                r12_p = power_table(r12, k_max)
-                s_p = power_table(s, n_max, n_min)
-                t_p = power_table(t, m_max)
-                mu1_p = power_table(mu1, ij_max)
-
-                nr_points = r12_p.shape[0]
-                nr_fncts = basis_idx.shape[0]
-
-                scale = np.exp(n_idx * np.log(2.0 * alpha_b) - 0.5 * gammaln(2*n_idx + 1))[None, :]  # (2*alpha_b)**n_idx / np.sqrt(math.factorial(2*n_idx))
-
-                # Assemble basis functions from power matrices
-                B = np.ones((nr_points, nr_fncts), dtype=np.float64) * rAB_p[h_idx][None, :]
-                B *= r12_p[:, k_idx]
-                B *= s_p[:, n_idx]
-                B *= t_p[:, m_idx]
-                B *= np.exp(-alpha_b[None, :]*s[:, None] - beta_b[None, :]*rAB - delta_b[None, :]*r12[:, None]) * scale
-                # B *= np.exp(-alpha*s - beta*rAB - delta*r12)[:, None]
-
-                potential = potential_ri(rAB, rA1, rB1, rA2, rB2, r12)
-
-                mu_part_ij = mu2_p[:, j_idx] * mu1_p[i_idx][None, :]  # symmetrized mu part
-                mu_part_ji = mu2_p[:, i_idx] * mu1_p[j_idx][None, :]
-                # H_ij_part = mu_part_ij * (coef_vector @ Fij) + mu_part_ji * (coef_vector @ Fji)  # Including the multiplyer for applying H
-                H_ij_part = mu_part_ij * Hpoly_ij + mu_part_ji * Hpoly_ji
-
-                A = B * H_ij_part
-                B *= (mu_part_ij + mu_part_ji)
-                A += B * potential[:, None]
-
-                if abs(rA1-2) < 0.6 and abs(theta-1*np.pi/4) < 0.2 and (BO or abs(rAB-1.4) < 0.0001):  # change to 1/4*Pi to see electron
-                    print(theta, x1, y1, rA1, rB1)
-                    test_A = A
-                    test_B = B  # Vectors of rows HP and P for later comparison of local energy deviation
-
-                S += ( B.T @ B ) * weight
-                H += ( B.T @ A ) * weight
-
-                nrP += 1
-    print(nrP)
-    print(time.time() - start)
-    return S, H, test_A, test_B, x2_vals, y2_vals, z2_vals, basis_idx
-
-
-# TODO
-#  * 2. test exp(-beta(r-X)**2) factor; optimize beta & X
-#  * 3. try changing coordinates & using larger basis sets
-#  * 4. find more efficient eigenvalue solver for the large basis
-
-
-def potential_ri(rAB, rA1, rB1, rA2, rB2, r12):
-    return 1/rAB + 1/r12 - 1/rA1 - 1/rB1 - 1/rA2 - 1/rB2
-
-
-S, H, test_A, test_B, x2_vals, y2_vals, z2_vals, basis_idx = build_SH_xyz_separate_V_fast()
-
-eigvals = np.linalg.eigvalsh(S)
-
-# optional diagnostics
-print((eigvals))
-print("min eig:", np.abs(eigvals).min())
-print("max eig:", np.abs(eigvals).max())
-print("cond:", eigvals.max() / eigvals.min())
-
-# inspect_small_overlap_eigenvectors(S)
-
-H, S = diag_rescale_generalized(H, S)
-
-print("After Diag rescaling:")
-eigvals = np.linalg.eigvalsh(S)
-print((eigvals))
-print("min eig:", np.abs(eigvals).min())
-print("max eig:", np.abs(eigvals).max())
-print("cond:", eigvals.max() / eigvals.min())
-
-# inspect_small_overlap_eigenvectors(S)
-
+from scipy.linalg import eig
+from plot import mask_closest_phi, plot_phi_and_local_energy_mu2, plot_mu2_with_alpha_beta
+from util import diag_rescale_generalized
+
+from plot import *
+from calc import *
+from sampling import *
+
+BO = True
+M = 1836.153
+
+# Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
+h_max = 5
+k_max = 8
+n_max = 8
+m_max = 8
+ij_max = 8
+total_max = 5
+delta = 0.1
+
+# Todo: allow cusp-enabling functions - maybe s^-1 would help? Go back to s1, s2? (^-1, or more ideally ln)?
+
+# delta = 0.1: E[0] := -1.174474883468479:
+# E[0] := -1.1744788198234721 at delta=0.1, alpha=0.695
+
+plot_phi_target = np.pi/2*0.1
+plot_rAB_target = 1.4
+plot_s2_target = 8
+
+nMu = 24
+nS = 50
+sMax = 50
+
+use_delta = delta != 0
+
+if BO:
+    M1M = 1
+    M_inv = 0
+else:
+    M1M = (M + 1) / M
+    M_inv = 1 / M
+
+if BO:  # Reset if not used
+    h_max = 0  # avoid rAB dependence
+    beta = 0
+
+rows = []
+for h in frange(0, h_max, 1):
+    for k in frange(0, k_max, 1):
+        for n in frange(0, n_max, 1):
+            for m in range(m_max + 1):  # careful: Whenever using negative indices, adjust power_table call accordingly.
+                for i in range(ij_max + 1):
+                    for j in range(i + 1):
+
+                        # constraints
+                        if (i + j) % 2 != 0: continue
+                        if m % 2 != 0: continue
+                        t = h + k + n + m + i + j
+                        if t > total_max: continue
+                        rows.append((h, k, n, m, i, j))  #-k-m
+
+basis_idx = np.array(rows, dtype=np.int16)
+
+# Shorthands for later use (no copies)
 h_idx = basis_idx[:, 0]
 k_idx = basis_idx[:, 1]
 n_idx = basis_idx[:, 2]
@@ -556,34 +72,208 @@ m_idx = basis_idx[:, 3]
 i_idx = basis_idx[:, 4]
 j_idx = basis_idx[:, 5]
 
-E, C = eig(H, S)  # Todo: test finer grid on 60-element basis set. If worse - what do the new functions (vs. 54) do?
-idx = np.argsort(E)
-E = np.real(E[idx])
-C = np.real(C[:, idx])
+h = h_idx.astype(np.float64)
+k = k_idx.astype(np.float64)
+n = n_idx.astype(np.float64)
+m = m_idx.astype(np.float64)
+i = i_idx.astype(np.float64)
+j = j_idx.astype(np.float64)
+
+Fij = np.stack([n * n - n, n, k * n, n * m, n * (m - h), n * i, n * j,
+                 m * m, m, m * k, m * i, m * j, m * (i + j - h),
+                 i * i - i, i, i * j, i * k, i * h,
+                 j * j - j, j, j * k, j * h,
+                 h * h + h, h, k * k + k, k,
+                 np.ones_like(n)], axis=0)
+Fji = np.stack([n * n - n, n, k * n, n * m, n * (m - h), n * j, n * i,
+                m * m, m, m * k, m * j, m * i, m * (j + i - h),
+                j * j - j, j, j * i, j * k, j * h,
+                i * i - i, i, i * k, i * h,
+                h * h + h, h, k * k + k, k,
+                np.ones_like(n)], axis=0)
+
+matSize = h_idx.size
+print(f"MatSize = {matSize}")
+
+start = time.time()
+
+nrP = 0
+abRange = frange(1.4, 1.4, 0.2)
+
+S_layers = {}
+H_1_layers = {}
+H_alpha_layers = {}
+H_alpha_2_layers = {}
+H_beta_layers = {}
+H_beta_2_layers = {}
+H_alpha_beta_layers = {}
+
+plot_mu2_chunks = []
+plot_x1_chunks = []
+plot_y1_chunks = []
+plot_B_chunks  = []
+plot_chunks_A_1 = []
+plot_chunks_A_alpha = []
+plot_chunks_A_beta = []
+plot_chunks_A_alpha2 = []
+plot_chunks_A_alphabeta = []
+plot_chunks_A_beta2 = []
+
+for rAB in abRange:
+    s_shells, sW = build_s_shells(rAB, Ks=nS, s_max=sMax, gamma = 3.0)
+    idx = np.abs(s_shells - plot_s2_target - plot_rAB_target).argmin()
+    plot_s2_target = s_shells[idx] - plot_rAB_target - 0.0001  # Ensure small s1 values are included in the plot-sampling
+    print(f"s2 = {plot_s2_target}")
+
+    for ks, s in enumerate(s_shells):
 
 
-i = 0
-while i < len(E) and E[i] < 0:
-    ci = C[:, i]
-    ci = ci/ci[0]
-    hp = test_A @ ci
-    p = test_B @ ci
+        s1_vals, s2_vals, splitW = split_s(s, rAB, Ku=10)
 
-    eps = np.linalg.norm(H @ ci - E[i] * (S @ ci)) / (np.linalg.norm(H @ ci) + 1e-30)
-    print(f"E[{i}] := {E[i]}: epsilon[{i}] := {eps}: "
-    #       # f"C[{i}] := {[f' + ({float(x)}) * rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}' for ii, x in enumerate(ci)]}")
-    #       f"C[{i}] := " + "".join( f" + ({float(x)})*rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}" for ii, x in enumerate(ci)) )
-    f"C[{i}] := " + ",".join(f" {float(x)}" for ii, x in enumerate(ci)))
-    i += 1
+        Sl = np.zeros((matSize, matSize), dtype=np.float64)
+        Hl_1 = np.zeros((matSize, matSize), dtype=np.float64)
+        Hl_alpha = np.zeros((matSize, matSize), dtype=np.float64)
+        Hl_alpha2 = np.zeros((matSize, matSize), dtype=np.float64)
+        Hl_alphabeta = np.zeros((matSize, matSize), dtype=np.float64)
+        Hl_beta = np.zeros((matSize, matSize), dtype=np.float64)
+        Hl_beta2 = np.zeros((matSize, matSize), dtype=np.float64)
+
+        if s-rAB > plot_s2_target:
+            s2_vals = np.append(s2_vals, plot_s2_target)
+            s1_vals = np.append(s1_vals, s - plot_s2_target)
+            splitW = np.append(splitW, 0.0)
+
+        for j, (s1, s2) in enumerate(zip(s1_vals, s2_vals)):
+
+            # sample electron 1 on its s1-shell
+            x1, y1, _, mu1, _, w1 = sample_s_shell(rAB, s1, Nphi=2, nMu=nMu)  # x-y plane only
+            rA1 = np.sqrt((x1 + rAB/2) ** 2 + y1 ** 2)
+            rB1 = np.sqrt((x1 - rAB/2) ** 2 + y1 ** 2)  # vectorized distances
+
+            # sample electron 2 on its s2-shell
+            x2, y2, z2, mu2, phi2, w2 = sample_s_shell(rAB, s2, octant=True, nMu=nMu)
+            rA2 = np.sqrt((x2 + rAB/2)**2 + y2**2 + z2**2)
+            rB2 = np.sqrt((x2 - rAB/2)**2 + y2**2 + z2**2)
 
 
-plot_wavefn_and_local_energy(
-    test_A, test_B, C, E,
-    x2_vals, y2_vals, z2_vals,
-    eps=1e-12,
-    clip_percentiles = (1, 99)
+            # weights
+            W0 = sW[ks] * splitW[j]  # scalar
+            Wpair = W0 * (w1[:, None] * w2[None, :]).ravel()  # (P,)
+            sqrtW = np.sqrt(Wpair)  # (P,)
+
+            # scale = np.exp(n_idx * np.log(2.0 * 0.75) - 0.5 * gammaln(2 * n_idx + 1))[None, :]
+
+            # Assemble basis functions from power matrices
+            B = np.ones((r12_p.shape[0], matSize), dtype=np.float64) * (rAB**h_idx*s**n_idx*t**m_idx)[None, :]  # * scale
+            B *= r12_p[:, k_idx]
+            B *= np.exp(-delta*r12)[:, None]
+
+            mu_part_ij = mu1_p[:, i_idx] * mu2_p[:, j_idx]
+            mu_part_ji = mu1_p[:, j_idx] * mu2_p[:, i_idx]
+
+            if abs(s2-plot_s2_target) < 1e-8:
+                mask_e2, phi_used = mask_closest_phi(phi2, plot_phi_target)
+                mask_pair = np.tile(mask_e2, P1)
+                x1_sel = np.repeat(x1, P2)[mask_pair]
+                y1_sel = np.repeat(y1, P2)[mask_pair]
+                mu2_sel = mu2[mask_pair]
+                B_ij = (B * mu_part_ij)
+                B_ji = (B * mu_part_ji)
+                B_plot = (B_ij + B_ji)[mask_pair, :]
+                plot_mu2_chunks.append(mu2_sel)
+                plot_x1_chunks.append(x1_sel)
+                plot_y1_chunks.append(y1_sel)
+                plot_B_chunks.append(B_plot)
+
+                A_1_full = H_1_ij * B_ij + H_1_ji * B_ji
+                A_alpha_full = H_alpha_ij * B_ij + H_alpha_ji * B_ji
+                A_beta_full = H_beta_ij * B_ij + H_beta_ji * B_ji
+                Bs = (B_ij + B_ji)
+                A_alpha2_full = H_alpha2 * Bs
+                A_beta2_full = H_beta2 * Bs
+                A_ab_full = H_alphabeta * Bs
+                A_1_sel       = A_1_full[mask_pair, :]
+                A_alpha_sel   = A_alpha_full[mask_pair, :]
+                A_beta_sel    = A_beta_full[mask_pair, :]
+                A_alpha2_sel  = A_alpha2_full[mask_pair, :]
+                A_beta2_sel   = A_beta2_full[mask_pair, :]
+                A_ab_sel      = A_ab_full[mask_pair, :]
+                assert B_plot.shape == A_alpha_sel.shape
+                plot_chunks_A_1.append(A_1_sel)
+                plot_chunks_A_alpha.append(A_alpha_sel)
+                plot_chunks_A_beta.append(A_beta_sel)
+                plot_chunks_A_alpha2.append(A_alpha2_sel)
+                plot_chunks_A_alphabeta.append(A_ab_sel)
+                plot_chunks_A_beta2.append(A_beta2_sel)
+
+            B *= sqrtW[:, None]
+            B_ij = B * mu_part_ij
+            B_ji = B * mu_part_ji
+
+            B = B_ij + B_ji
+
+            Sl += B.T @ B
+            Hl_1 += B.T @ (H_1_ij * B_ij + H_1_ji * B_ji)
+            Hl_alpha += B.T @ (H_alpha_ij * B_ij + H_alpha_ji * B_ji)
+            Hl_beta += B.T @ (H_beta_ij * B_ij + H_beta_ji * B_ji)
+            Hl_alpha2 += B.T @ (H_alpha2 * (B_ij + B_ji))
+            Hl_alphabeta += B.T @ (H_alphabeta * (B_ij + B_ji))
+            Hl_beta2 += B.T @ (H_beta2 * (B_ij + B_ji))
+
+            # H += (B.T @ A) * np.exp(-2*alpha*s - 2*beta*rAB)
+
+            # if abs(rA1 - 2) < 0.6 and abs(theta - 1 * np.pi / 4) < 0.2 and (BO or abs(rAB - 1.4) < 0.0001):  # change to 1/4*Pi to see electron
+            #     print(theta, x1, y1, rA1, rB1)
+            #     test_A = A
+            #     test_B = B  # Vectors of rows HP and P for later comparison of local energy deviation  # todo
+
+            nrP += P
+
+        S_layers[rAB, s] = Sl
+        H_1_layers[rAB, s] = Hl_1
+        H_alpha_layers[rAB, s] = Hl_alpha
+        H_alpha_2_layers[rAB, s] = Hl_alpha2
+        H_alpha_beta_layers[rAB, s] = Hl_alphabeta
+        H_beta_layers[rAB, s] = Hl_beta
+        H_beta_2_layers[rAB, s] = Hl_beta2
+
+        print(ks, rAB, s, nrP, time.time() - start)
+
+mu2_all = np.concatenate(plot_mu2_chunks)
+x1_all = np.concatenate(plot_x1_chunks)
+y1_all = np.concatenate(plot_y1_chunks)
+B_plot_all = np.vstack(plot_B_chunks)
+A_1_all = np.vstack(plot_chunks_A_1)
+A_alpha_all = np.vstack(plot_chunks_A_alpha)
+A_beta_all = np.vstack(plot_chunks_A_beta)
+A_alpha2_all = np.vstack(plot_chunks_A_alpha2)
+A_alphabeta_all = np.vstack(plot_chunks_A_alphabeta)
+A_beta2_all = np.vstack(plot_chunks_A_beta2)
+
+plot_mu2_with_alpha_beta(
+    x1_all=x1_all, y1_all=y1_all, mu2_all=mu2_all,
+    B_plot_all=B_plot_all,
+    A_1_all=A_1_all, A_alpha_all=A_alpha_all, A_beta_all=A_beta_all,
+    A_alpha2_all=A_alpha2_all, A_alphabeta_all=A_alphabeta_all, A_beta2_all=A_beta2_all,
+
+    S_layers=S_layers,
+    H_1_layers=H_1_layers,
+    H_alpha_layers=H_alpha_layers,
+    H_beta_layers=H_beta_layers,
+    H_alpha_2_layers=H_alpha_2_layers,
+    H_beta_2_layers=H_beta_2_layers,
+    H_alpha_beta_layers=H_alpha_beta_layers,
+
+    matSize=matSize,
+    diag_rescale_generalized=diag_rescale_generalized,
+
+    plot_rAB_target=plot_rAB_target,
+    plot_s2_target=plot_s2_target,
+    plot_phi_target=plot_phi_target,
+
+    alpha_values=np.arange(0.6, 1.3, 0.005),
+    beta_values=np.array([0.0]),
+
+    zlim_eloc=(-3, 0),
+    subsample=4000,
 )
-#
-#     # TODO: TestL
-#     #  * Try exp(rIj/rAB...) exponent - is it actually worse?
-#     #  * Is ((rA2-rB2)/rAB)^(2*dB2); correct in the ansatz, or are the ((rA1-rB1)/rAB)^1*((rA2-rB2)/rAB)^1 type terms missing?
