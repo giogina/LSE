@@ -70,9 +70,9 @@ def calc_H_alphabeta_stmu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1
     inv_mu1 = 1 / mu1
     inv_mu1_2 = inv_mu1 * inv_mu1
     v1 = inv_rA1 + inv_rB1
-    cos1AB = (rA1_2 + rAB_2 - rB1_2) * inv_rA1 * inv_rAB * 0.5
-    cos1BA = (rAB_2 + rB1_2 - rA1_2) * inv_rAB * inv_rB1 * 0.5
-    cosA1B = (rA1_2 - rAB_2 + rB1_2) * inv_rA1 * inv_rB1 * 0.5
+    cos1AB = (rA1_2 + rAB_2 - rB1_2) * inv_rA1 * inv_rAB  * 0.5
+    cos1BA = (rAB_2 + rB1_2 - rA1_2) * inv_rAB * inv_rB1  * 0.5
+    cosA1B = (rA1_2 - rAB_2 + rB1_2) * inv_rA1 * inv_rB1  * 0.5
     c11 = M_inv * (cos1AB - cos1BA)
 
     # e2-only primitives
@@ -84,13 +84,13 @@ def calc_H_alphabeta_stmu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1
     inv_mu2 = 1.0 / mu2
     inv_mu2_2 = inv_mu2 * inv_mu2
     v2 = inv_rA2 + inv_rB2
-    cos2AB = (rA2_2 + rAB_2 - rB2_2) * inv_rA2 * inv_rAB * 0.5
-    cos2BA = (rAB_2 + rB2_2 - rA2_2) * inv_rAB * inv_rB2 * 0.5
-    cosA2B = (rA2_2 - rAB_2 + rB2_2) * inv_rA2 * inv_rB2 * 0.5
+    cos2AB = (rA2_2 + rAB_2 - rB2_2) * inv_rA2 * inv_rAB  * 0.5
+    cos2BA = (rAB_2 + rB2_2 - rA2_2) * inv_rAB * inv_rB2  * 0.5
+    cosA2B = (rA2_2 - rAB_2 + rB2_2) * inv_rA2 * inv_rB2  * 0.5
     c12 = M_inv * (cos2AB - cos2BA)
 
     # Mixed but scalar
-    t = (s1 - s2) * inv_rAB * 0.5
+    t = (s1 - s2) * inv_rAB  * 0.5
     inv_t = 1 / t
     inv_t_2 = inv_t * inv_t
     inv_rAB_s = inv_rAB * inv_s
@@ -138,12 +138,12 @@ def calc_H_alphabeta_stmu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1
 
     v12 = v1 + v2
 
-    cos12A = (r12_2 - rA1_2 + rA2_2) * inv_r12 * inv_rA2 * 0.5
-    cos12B = (r12_2 - rB1_2 + rB2_2) * inv_r12 * inv_rB2 * 0.5
-    cos1A2 = (rA1_2 + rA2_2 - r12_2) * inv_rA1 * inv_rA2 * 0.5
-    cos1B2 = (rB1_2 + rB2_2 - r12_2) * inv_rB1 * inv_rB2 * 0.5
-    cos21A = (r12_2 + rA1_2 - rA2_2) * inv_r12 * inv_rA1 * 0.5
-    cos21B = (r12_2 + rB1_2 - rB2_2) * inv_r12 * inv_rB1 * 0.5
+    cos12A = (r12_2 - rA1_2 + rA2_2) * inv_r12 * inv_rA2  * 0.5
+    cos12B = (r12_2 - rB1_2 + rB2_2) * inv_r12 * inv_rB2  * 0.5
+    cos1A2 = (rA1_2 + rA2_2 - r12_2) * inv_rA1 * inv_rA2  * 0.5
+    cos1B2 = (rB1_2 + rB2_2 - r12_2) * inv_rB1 * inv_rB2  * 0.5
+    cos21A = (r12_2 + rA1_2 - rA2_2) * inv_r12 * inv_rA1  * 0.5
+    cos21B = (r12_2 + rB1_2 - rB2_2) * inv_r12 * inv_rB1  * 0.5
 
     # Recurring combinations
     c1 = cos12A + cos12B + cos21A + cos21B
@@ -167,7 +167,7 @@ def calc_H_alphabeta_stmu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1
     c_ni = (c8 - c10 * inv_mu1) * inv_rAB_s  # n*i
     c_nj = (c8 - c10 * inv_mu2) * inv_rAB_s  # n*j
     c_m2 = -0.25 * (
-                2 * M1M + c2 - c7) * inv_t_2 * inv_rAB_2 - M_inv * inv_rAB_2 + 0.5 * c9 * inv_rAB_2 * inv_t  # m^2
+                2.0 *M1M + c2 - c7) * inv_t_2 * inv_rAB_2 - M_inv * inv_rAB_2 + 0.5 * c9 * inv_rAB_2 * inv_t  # m^2
     c_m = 0.5 * M1M * (v2 - v1) * inv_rAB_t + 0.25 * (
                 M1M * 2.0 + c2 - c7) * inv_t_2 * inv_rAB_2 + M_inv * inv_rAB_2  # m
     c_m_alpha = - c6 * inv_rAB_t - c8 * inv_rAB
@@ -266,3 +266,79 @@ def calc_H_alphabeta_stmu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1
     H_beta2 = coef_vector_beta2 @ Fij
 
     return H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_alpha2, H_alphabeta, H_beta_ij, H_beta_ji, H_beta2
+
+def calc_H_alphabeta_rij():
+    c_b2 = -inv_rB_2 * M1M * 0.5 - cos1B2 * rB1 * rB2 * inv_rB_4 * Minv
+    c_b = -2.0 * cos1B2 * rB1 * rB2 * inv_rB_4 * Minv - cos12B * delta * rB2 * inv_rB_2 - cos21B * delta * rB1 * inv_rB_2 + 2.0 *inv_rB_2 * M1M
+    c_m = -inv_rB1_2 * M1M * 0.5 + cos21B * inv_rB1 * delta
+    c_a2 = -inv_rA_2 * M1M * 0.5 - cos1A2 * rA1 * rA2 * inv_rA_4 * Minv
+    c_a = -2.0 * cos1A2 * rA1 * rA2 * inv_rA_4 * Minv - cos12A * delta * rA2 * inv_rA_2 - cos21A * delta * rA1 * inv_rA_2 + 2.0 *inv_rA_2 * M1M
+    c_i = -inv_rA2_2 * M1M * 0.5 + cos12A * inv_rA2 * delta
+    c_n = -inv_rA1_2 * M1M * 0.5 + cos21A * inv_rA1 * delta
+    c_j = -inv_rB2_2 * M1M * 0.5 + cos12B * inv_rB2 * delta
+    c_k2 = -inv_r12_2
+    c_ij = -cosA2B * inv_rA2 * inv_rB2
+    c_ik = -cos12A * inv_rA2 * inv_r12
+    c_nk = -cos21A * inv_rA1 * inv_r12
+    c_ka = cos12A * inv_r12 * rA2 * inv_rA_2 + cos21A * inv_r12 * rA1 * inv_rA_2
+    c_ab = -cosA1B * rA1 * rB1 * inv_rA_2 * inv_rB_2 - cosA2B * rA2 * rB2 * inv_rA_2 * inv_rB_2
+    c_kb = cos12B * inv_r12 * rB2 * inv_rB_2 + cos21B * inv_r12 * rB1 * inv_rB_2
+    c_nm = -cosA1B * inv_rA1 * inv_rB1
+    c_mk = -cos21B * inv_rB1 * inv_r12
+    c_jk = -cos12B * inv_rB2 * inv_r12
+    c_ni = -cos1A2 * inv_rA1 * inv_rA2 * Minv
+    c_nh = -cos1AB * inv_rA1 * inv_rAB * Minv
+    c_nb = cosA1B * inv_rA1 * inv_rB_2 * rB1
+    c_mj = -cos1B2 * inv_rB1 * inv_rB2 * Minv
+    c_mh = -cos1BA * inv_rB1 * inv_rAB * Minv
+    c_ih = -cos2AB * inv_rA2 * inv_rAB * Minv
+    c_ib = cosA2B * inv_rA2 * inv_rB_2 * rB2
+    c_jh = -cos2BA * inv_rB2 * inv_rAB * Minv
+    c_hb = Minv * cos1BA * inv_rAB * rB1 * inv_rB_2 + Minv * cos2BA * inv_rAB * rB2 * inv_rB_2
+    c_ha = Minv * cos1AB * inv_rAB * rA1 * inv_rA_2 + Minv * cos2AB * inv_rAB * rA2 * inv_rA_2
+    c_ma = cosA1B * inv_rB1 * inv_rA_2 * rA1
+    c_ja = cosA2B * inv_rB2 * inv_rA_2 * rA2
+    c_jb = cos1B2 * inv_rB2 * inv_rB_2 * rB1 * Minv + inv_rB_2 * M1M
+    c_j2 = -inv_rB2_2 * M1M * 0.5
+    c_i2 = -inv_rA2_2 * M1M * 0.5
+    c_mb = cos1B2 * inv_rB1 * inv_rB_2 * rB2 * Minv + inv_rB_2 * M1M
+    c_m2 = -inv_rB1_2 * M1M * 0.5
+    c_n2 = -inv_rA1_2 * M1M * 0.5
+    c_ia = cos1A2 * inv_rA2 * inv_rA_2 * rA1 * Minv + inv_rA_2 * M1M
+    c_h = -inv_rAB_2 * Minv
+    c_na = cos1A2 * inv_rA1 * inv_rA_2 * rA2 * Minv + inv_rA_2 * M1M
+    c_h2 = -inv_rAB_2 * Minv
+    c_1 = -delta ** 2.0 * inv_r12 * r12 + 2.0 * delta * inv_r12
+    c_k = 2.0 * delta * r12 * inv_r12_2 - inv_r12_2
+
+    c_alpha_n = Minv * cos1A2 * inv_rA1 + M1M * inv_rA1 + cosA1B * inv_rA1
+    c_alpha_m = Minv * cos1B2 * inv_rB1 + M1M * inv_rB1 + cosA1B * inv_rB1
+    c_alpha_i = Minv * cos1A2 * inv_rA2 + M1M * inv_rA2 + cosA2B * inv_rA2
+    c_alpha_j = Minv * cos1B2 * inv_rB2 + M1M * inv_rB2 + cosA2B * inv_rB2
+    c_alpha_k = cos12A * inv_r12 + cos12B * inv_r12 + cos21A * inv_r12 + cos21B * inv_r12
+    c_alpha_h = Minv * cos1AB * inv_rAB + Minv * cos1BA * inv_rAB + Minv * cos2AB * inv_rAB + Minv * cos2BA * inv_rAB
+    c_alpha_a = -Minv * cos1A2 * rA1 * inv_rA_2 - Minv * cos1A2 * rA2 * inv_rA_2 - M1M * rA1 * inv_rA_2 - M1M * rA2 * inv_rA_2 - cosA1B * rA1 * inv_rA_2 - cosA2B * rA2 * inv_rA_2
+    c_alpha_b = -Minv * cos1B2 * rB1 * inv_rB_2 - Minv * cos1B2 * rB2 * inv_rB_2 - M1M * rB1 * inv_rB_2 - M1M * rB2 * inv_rB_2 - cosA1B * rB1 * inv_rB_2 - cosA2B * rB2 * inv_rB_2
+    c_alpha_1 = M1M * inv_rA1 * inv_rA2 * inv_rB1 * inv_rB2 * rA1 * rA2 * rB1 + M1M * inv_rA1 * inv_rA2 * inv_rB1 * inv_rB2 * rA1 * rA2 * rB2 + M1M * inv_rA1 * inv_rA2 * inv_rB1 * inv_rB2 * rA1 * rB1 * rB2 + M1M * inv_rA1 * inv_rA2 * inv_rB1 * inv_rB2 * rA2 * rB1 * rB2
+    c_alpha_1 = -cos12A * delta - cos12B * delta - cos21A * delta - cos21B * delta
+
+    c_alpha2_1 = -2.0 * M1M - cosA1B - cosA2B - Minv * cos1A2 - Minv * cos1B2
+
+    c_alphabeta_1 = -Minv * cos1AB - Minv * cos1BA - Minv * cos2AB - Minv * cos2BA
+
+    c_beta_n = cos1AB * inv_rA1 * Minv
+    c_beta_m = cos1BA * inv_rB1 * Minv
+    c_beta_i = cos2AB * inv_rA2 * Minv
+    c_beta_j = cos2BA * inv_rB2 * Minv
+    c_beta_h = 2.0 * inv_rAB * Minv
+    c_beta_a = -Minv * cos1AB * rA1 * inv_rA_2 - Minv * cos2AB * rA2 * inv_rA_2
+    c_beta_b = -Minv * cos1BA * rB1 * inv_rB_2 - Minv * cos2BA * rB2 * inv_rB_2
+    c_beta_1 = 2.0 * inv_rAB * Minv
+
+    c_beta2_1 = -Minv
+
+
+
+
+
+
