@@ -85,16 +85,7 @@ H_beta_layers = {}
 H_beta_2_layers = {}
 H_alpha_beta_layers = {}
 
-plot_mu2_chunks = []
-plot_x1_chunks = []
-plot_y1_chunks = []
-plot_B_chunks  = []
-plot_chunks_A_1 = []
-plot_chunks_A_alpha = []
-plot_chunks_A_beta = []
-plot_chunks_A_alpha2 = []
-plot_chunks_A_alphabeta = []
-plot_chunks_A_beta2 = []
+plot_chunks = init_plot_chunks()
 
 for rAB in abRange:
     s_shells, sW = build_s_shells(rAB, Ks=nS, s_max=sMax, gamma = 3.0)
@@ -133,10 +124,6 @@ for rAB in abRange:
             rB2 = np.sqrt((x2 - rAB/2)**2 + y2**2 + z2**2)
             mu2_p = power_table(mu2, ij_max)
 
-            P1 = rA1.size
-            P2 = rA2.size
-            P = P1 * P2
-
             # r12-dependent quantities
             dx = x1[:, None] - x2[None, :]
             dy = y1[:, None] - y2[None, :]
@@ -145,15 +132,17 @@ for rAB in abRange:
             r12 = np.maximum(r12, 10 ** (-8))
             r12_p = power_table(r12, k_max)
 
+            P1 = rA1.size
+            P2 = rA2.size
+            P = P1 * P2
+
             H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_alpha2, H_alphabeta, H_beta_ij, H_beta_ji, H_beta2 = calc_H_alphabeta_stmu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1, s2, s, mu1, mu2, delta)
 
+            # Tile/repeat single-electron arrays to match the entire sample point array
             mu1_p = np.repeat(mu1_p, P2, axis=0)  # shape (P, Npow)
             mu2_p = np.tile(mu2_p, (P1, 1))
-
-            # weights
-            W0 = sW[ks] * splitW[j]  # scalar
-            Wpair = W0 * (w1[:, None] * w2[None, :]).ravel()  # (P,)
-            sqrtW = np.sqrt(Wpair)  # (P,)
+            # scalar
+            t = (s1 - s2) / rAB * 0.5
 
             # Assemble basis functions from power matrices
             B = np.ones((r12_p.shape[0], matSize), dtype=np.float64) * (rAB**h_idx*s**n_idx*t**m_idx)[None, :]
@@ -164,43 +153,12 @@ for rAB in abRange:
             mu_part_ji = mu1_p[:, j_idx] * mu2_p[:, i_idx]
 
             if abs(s2-plot_s2_target) < 1e-8:
-                mask_e2, phi_used = mask_closest_phi(phi2, plot_phi_target)
-                mask_pair = np.tile(mask_e2, P1)
-                x1_sel = np.repeat(x1, P2)[mask_pair]
-                y1_sel = np.repeat(y1, P2)[mask_pair]
-                mu1 = np.repeat(mu1, P2)
-                mu2 = np.tile(mu2, P1)
-                mu2_sel = mu2[mask_pair]
-                B_ij = (B * mu_part_ij)
-                B_ji = (B * mu_part_ji)
-                B_plot = (B_ij + B_ji)[mask_pair, :]
-                plot_mu2_chunks.append(mu2_sel)
-                plot_x1_chunks.append(x1_sel)
-                plot_y1_chunks.append(y1_sel)
-                plot_B_chunks.append(B_plot)
+                plot_chunks = update_plot_chunks(plot_chunks, mu1, mu2, B, mu_part_ij, mu_part_ji, P1, P2, x1, y1, phi2, plot_phi_target, H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_alpha2, H_alphabeta, H_beta_ij, H_beta_ji, H_beta2)
 
-                A_1_full = H_1_ij * B_ij + H_1_ji * B_ji
-                A_alpha_full = H_alpha_ij * B_ij + H_alpha_ji * B_ji
-                A_beta_full = H_beta_ij * B_ij + H_beta_ji * B_ji
-                Bs = (B_ij + B_ji)
-                A_alpha2_full = H_alpha2 * Bs
-                A_beta2_full = H_beta2 * Bs
-                A_ab_full = H_alphabeta * Bs
-                A_1_sel       = A_1_full[mask_pair, :]
-                A_alpha_sel   = A_alpha_full[mask_pair, :]
-                A_beta_sel    = A_beta_full[mask_pair, :]
-                A_alpha2_sel  = A_alpha2_full[mask_pair, :]
-                A_beta2_sel   = A_beta2_full[mask_pair, :]
-                A_ab_sel      = A_ab_full[mask_pair, :]
-                assert B_plot.shape == A_alpha_sel.shape
-                plot_chunks_A_1.append(A_1_sel)
-                plot_chunks_A_alpha.append(A_alpha_sel)
-                plot_chunks_A_beta.append(A_beta_sel)
-                plot_chunks_A_alpha2.append(A_alpha2_sel)
-                plot_chunks_A_alphabeta.append(A_ab_sel)
-                plot_chunks_A_beta2.append(A_beta2_sel)
-
+            # weights
+            sqrtW = np.sqrt((sW[ks] * splitW[j]) * (w1[:, None] * w2[None, :]).ravel())   # (P,)
             B *= sqrtW[:, None]
+
             B_ij = B * mu_part_ij
             B_ji = B * mu_part_ji
 
@@ -226,22 +184,9 @@ for rAB in abRange:
 
         print(ks, rAB, s, nrP, time.time() - start)
 
-mu2_all = np.concatenate(plot_mu2_chunks)
-x1_all = np.concatenate(plot_x1_chunks)
-y1_all = np.concatenate(plot_y1_chunks)
-B_plot_all = np.vstack(plot_B_chunks)
-A_1_all = np.vstack(plot_chunks_A_1)
-A_alpha_all = np.vstack(plot_chunks_A_alpha)
-A_beta_all = np.vstack(plot_chunks_A_beta)
-A_alpha2_all = np.vstack(plot_chunks_A_alpha2)
-A_alphabeta_all = np.vstack(plot_chunks_A_alphabeta)
-A_beta2_all = np.vstack(plot_chunks_A_beta2)
 
 plot_mu2_with_alpha_beta(
-    x1_all=x1_all, y1_all=y1_all, mu2_all=mu2_all,
-    B_plot_all=B_plot_all,
-    A_1_all=A_1_all, A_alpha_all=A_alpha_all, A_beta_all=A_beta_all,
-    A_alpha2_all=A_alpha2_all, A_alphabeta_all=A_alphabeta_all, A_beta2_all=A_beta2_all,
+    plot_chunks = plot_chunks,
 
     S_layers=S_layers,
     H_1_layers=H_1_layers,
