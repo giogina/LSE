@@ -1,8 +1,5 @@
 import time
-import numpy as np
-from scipy.special import gammaln
-from scipy.linalg import eig
-from plot import mask_closest_phi, plot_phi_and_local_energy_mu2, plot_mu2_with_alpha_beta
+
 from util import diag_rescale_generalized
 
 from plot import *
@@ -33,8 +30,6 @@ plot_s2_target = 8
 nMu = 24
 nS = 50
 sMax = 50
-
-use_delta = delta != 0
 
 if BO:
     M1M = 1
@@ -72,25 +67,7 @@ m_idx = basis_idx[:, 3]
 i_idx = basis_idx[:, 4]
 j_idx = basis_idx[:, 5]
 
-h = h_idx.astype(np.float64)
-k = k_idx.astype(np.float64)
-n = n_idx.astype(np.float64)
-m = m_idx.astype(np.float64)
-i = i_idx.astype(np.float64)
-j = j_idx.astype(np.float64)
-
-Fij = np.stack([n * n - n, n, k * n, n * m, n * (m - h), n * i, n * j,
-                 m * m, m, m * k, m * i, m * j, m * (i + j - h),
-                 i * i - i, i, i * j, i * k, i * h,
-                 j * j - j, j, j * k, j * h,
-                 h * h + h, h, k * k + k, k,
-                 np.ones_like(n)], axis=0)
-Fji = np.stack([n * n - n, n, k * n, n * m, n * (m - h), n * j, n * i,
-                m * m, m, m * k, m * j, m * i, m * (j + i - h),
-                j * j - j, j, j * i, j * k, j * h,
-                i * i - i, i, i * k, i * h,
-                h * h + h, h, k * k + k, k,
-                np.ones_like(n)], axis=0)
+Fij, Fji = calc_Fij_stmu(h_idx, k_idx, n_idx, m_idx, i_idx, j_idx)
 
 matSize = h_idx.size
 print(f"MatSize = {matSize}")
@@ -127,7 +104,6 @@ for rAB in abRange:
 
     for ks, s in enumerate(s_shells):
 
-
         s1_vals, s2_vals, splitW = split_s(s, rAB, Ku=10)
 
         Sl = np.zeros((matSize, matSize), dtype=np.float64)
@@ -149,22 +125,38 @@ for rAB in abRange:
             x1, y1, _, mu1, _, w1 = sample_s_shell(rAB, s1, Nphi=2, nMu=nMu)  # x-y plane only
             rA1 = np.sqrt((x1 + rAB/2) ** 2 + y1 ** 2)
             rB1 = np.sqrt((x1 - rAB/2) ** 2 + y1 ** 2)  # vectorized distances
+            mu1_p = power_table(mu1, ij_max)
 
             # sample electron 2 on its s2-shell
             x2, y2, z2, mu2, phi2, w2 = sample_s_shell(rAB, s2, octant=True, nMu=nMu)
             rA2 = np.sqrt((x2 + rAB/2)**2 + y2**2 + z2**2)
             rB2 = np.sqrt((x2 - rAB/2)**2 + y2**2 + z2**2)
+            mu2_p = power_table(mu2, ij_max)
 
+            P1 = rA1.size
+            P2 = rA2.size
+            P = P1 * P2
+
+            # r12-dependent quantities
+            dx = x1[:, None] - x2[None, :]
+            dy = y1[:, None] - y2[None, :]
+            dz = 0.0 - z2[None, :]
+            r12 = np.sqrt(dx * dx + dy * dy + dz * dz).ravel()  # vector of r12 values for all e1, e2 positions
+            r12 = np.maximum(r12, 10 ** (-8))
+            r12_p = power_table(r12, k_max)
+
+            H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_alpha2, H_alphabeta, H_beta_ij, H_beta_ji, H_beta2 = calc_H_alphabeta_stmu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1, s2, s, mu1, mu2, delta)
+
+            mu1_p = np.repeat(mu1_p, P2, axis=0)  # shape (P, Npow)
+            mu2_p = np.tile(mu2_p, (P1, 1))
 
             # weights
             W0 = sW[ks] * splitW[j]  # scalar
             Wpair = W0 * (w1[:, None] * w2[None, :]).ravel()  # (P,)
             sqrtW = np.sqrt(Wpair)  # (P,)
 
-            # scale = np.exp(n_idx * np.log(2.0 * 0.75) - 0.5 * gammaln(2 * n_idx + 1))[None, :]
-
             # Assemble basis functions from power matrices
-            B = np.ones((r12_p.shape[0], matSize), dtype=np.float64) * (rAB**h_idx*s**n_idx*t**m_idx)[None, :]  # * scale
+            B = np.ones((r12_p.shape[0], matSize), dtype=np.float64) * (rAB**h_idx*s**n_idx*t**m_idx)[None, :]
             B *= r12_p[:, k_idx]
             B *= np.exp(-delta*r12)[:, None]
 
@@ -176,6 +168,8 @@ for rAB in abRange:
                 mask_pair = np.tile(mask_e2, P1)
                 x1_sel = np.repeat(x1, P2)[mask_pair]
                 y1_sel = np.repeat(y1, P2)[mask_pair]
+                mu1 = np.repeat(mu1, P2)
+                mu2 = np.tile(mu2, P1)
                 mu2_sel = mu2[mask_pair]
                 B_ij = (B * mu_part_ij)
                 B_ji = (B * mu_part_ji)
@@ -219,13 +213,6 @@ for rAB in abRange:
             Hl_alpha2 += B.T @ (H_alpha2 * (B_ij + B_ji))
             Hl_alphabeta += B.T @ (H_alphabeta * (B_ij + B_ji))
             Hl_beta2 += B.T @ (H_beta2 * (B_ij + B_ji))
-
-            # H += (B.T @ A) * np.exp(-2*alpha*s - 2*beta*rAB)
-
-            # if abs(rA1 - 2) < 0.6 and abs(theta - 1 * np.pi / 4) < 0.2 and (BO or abs(rAB - 1.4) < 0.0001):  # change to 1/4*Pi to see electron
-            #     print(theta, x1, y1, rA1, rB1)
-            #     test_A = A
-            #     test_B = B  # Vectors of rows HP and P for later comparison of local energy deviation  # todo
 
             nrP += P
 

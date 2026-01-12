@@ -1,8 +1,6 @@
-import time
-import numpy as np
-from numpy.polynomial.laguerre import laggauss
-from numpy.polynomial.legendre import leggauss
 
+import numpy as np
+from numpy.polynomial.legendre import leggauss
 
 # from main import frange
 def frange(start, stop, step):
