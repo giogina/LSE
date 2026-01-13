@@ -20,35 +20,26 @@ def init_plot_chunks():
     plot_chunks["A_alphabeta"] = []
     return plot_chunks
 
-def update_plot_chunks(plot_chunks, mu1, mu2, B, mu_part_ij, mu_part_ji, P1, P2, x1, y1, phi2, plot_phi_target, H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_alpha2, H_alphabeta, H_beta_ij, H_beta_ji, H_beta2):
+def update_plot_chunks(plot_chunks, mu2, B, P1, P2, x1, y1, phi2, plot_phi_target, A_1, A_alpha, A_alpha2, A_alphabeta, A_beta, A_beta2):
     mask_e2, phi_used = mask_closest_phi(phi2, plot_phi_target)
     mask_pair = np.tile(mask_e2, P1)
     x1_sel = np.repeat(x1, P2)[mask_pair]
     y1_sel = np.repeat(y1, P2)[mask_pair]
-    mu1 = np.repeat(mu1, P2)
     mu2 = np.tile(mu2, P1)
     mu2_sel = mu2[mask_pair]
-    B_ij = (B * mu_part_ij)
-    B_ji = (B * mu_part_ji)
-    B_plot = (B_ij + B_ji)[mask_pair, :]
+
+    B_plot = B[mask_pair, :]
     plot_chunks["mu2"].append(mu2_sel)
     plot_chunks["x1"].append(x1_sel)
     plot_chunks["y1"].append(y1_sel)
     plot_chunks["B"].append(B_plot)
 
-    A_1_full = H_1_ij * B_ij + H_1_ji * B_ji
-    A_alpha_full = H_alpha_ij * B_ij + H_alpha_ji * B_ji
-    A_beta_full = H_beta_ij * B_ij + H_beta_ji * B_ji
-    Bs = (B_ij + B_ji)
-    A_alpha2_full = H_alpha2 * Bs
-    A_beta2_full = H_beta2 * Bs
-    A_ab_full = H_alphabeta * Bs
-    A_1_sel = A_1_full[mask_pair, :]
-    A_alpha_sel = A_alpha_full[mask_pair, :]
-    A_beta_sel = A_beta_full[mask_pair, :]
-    A_alpha2_sel = A_alpha2_full[mask_pair, :]
-    A_beta2_sel = A_beta2_full[mask_pair, :]
-    A_ab_sel = A_ab_full[mask_pair, :]
+    A_1_sel = A_1[mask_pair, :]
+    A_alpha_sel = A_alpha[mask_pair, :]
+    A_beta_sel = A_beta[mask_pair, :]
+    A_alpha2_sel = A_alpha2[mask_pair, :]
+    A_beta2_sel = A_beta2[mask_pair, :]
+    A_ab_sel = A_alphabeta[mask_pair, :]
     assert B_plot.shape == A_alpha_sel.shape
     plot_chunks["A_1"].append(A_1_sel)
     plot_chunks["A_alpha"].append(A_alpha_sel)
