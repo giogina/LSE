@@ -237,7 +237,7 @@ def plot_mu2_with_alpha_beta(
         ci = C[:, i]
         ci = ci / ci[0]
         eps = np.linalg.norm(H @ ci - E[i] * (S @ ci)) / (np.linalg.norm(H @ ci) + 1e-30)
-        print(f"E[{i}] := {E[i]}: epsilon[{i}] := {eps}: "
+        print(f"E[{i}] := {E[i]}: cond = {cond}, epsilon[{i}] := {eps}: "
               # f"C[{i}] := {[f' + ({float(x)}) * rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}' for ii, x in enumerate(ci)]}")
               f"C[{i}] := " + ",".join(f" {float(x)}" for ii, x in enumerate(ci)))
 

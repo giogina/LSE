@@ -4,6 +4,9 @@ import numpy as np
 def potential_ri(rAB, rA1, rB1, rA2, rB2, r12):
     return 1/rAB + 1/r12 - 1/rA1 - 1/rB1 - 1/rA2 - 1/rB2
 
+def potential_ri_inv(rAB_inv, rA1_inv, rB1_inv, rA2_inv, rB2_inv, r12_inv):  # For cases when the inv's are pre-computed
+    return rAB_inv + r12_inv - rA1_inv - rB1_inv - rA2_inv - rB2_inv
+
 
 def power_table(x, p_max, p_min=0):
     x = np.asarray(x, dtype=np.float64)
@@ -47,7 +50,7 @@ def calc_F_rij(h_idx, k_idx, n_idx, m_idx, i_idx, j_idx, a_idx, b_idx):
     return F
 
 
-def calc_Fij_stmu(h_idx, k_idx, n_idx, m_idx, i_idx, j_idx):
+def calc_Fij_s12mu(h_idx, k_idx, n_idx, m_idx, i_idx, j_idx):
 
     h = h_idx.astype(np.float64)
     k = k_idx.astype(np.float64)
@@ -55,6 +58,21 @@ def calc_Fij_stmu(h_idx, k_idx, n_idx, m_idx, i_idx, j_idx):
     m = m_idx.astype(np.float64)
     i = i_idx.astype(np.float64)
     j = j_idx.astype(np.float64)
+    Fij = np.stack([n*n - n, n, k*k + k, k, m*m - m, m, i*i, i, j*j, j, h*h + h, h, n*i, m*j, n*j, n*m, j*k, n*h, i*k, m*h, n*k, m*i, j*h, m*k, i*j, i*h, np.ones_like(n)], axis=0)
+
+    h = h_idx.astype(np.float64)  # switch 1 <-> 2
+    k = k_idx.astype(np.float64)
+    n = m_idx.astype(np.float64)
+    m = n_idx.astype(np.float64)
+    i = j_idx.astype(np.float64)
+    j = i_idx.astype(np.float64)
+    Fji = np.stack([n*n - n, n, k*k + k, k, m*m - m, m, i*i, i, j*j, j, h*h + h, h, n*i, m*j, n*j, n*m, j*k, n*h, i*k, m*h, n*k, m*i, j*h, m*k, i*j, i*h, np.ones_like(n)], axis=0)
+
+    return Fij, Fji
+
+
+def calc_Fij_stmu(h_idx, k_idx, n_idx, m_idx, i_idx, j_idx):
+
 
     Fij = np.stack([n * n - n, n, k * n, n * m, n * (m - h), n * i, n * j,
                      m * m, m, m * k, m * i, m * j, m * (i + j - h),
@@ -475,114 +493,158 @@ def calc_H_alphabeta_rij(F, rAB, rA1, rB1, rA2, rB2, r12, Minv, M1M, delta):
 
     return H_1, H_alpha, H_alpha2, H_alphabeta, H_beta, H_beta2, inv_rA, inv_rB
 
-from scipy.sparse import coo_matrix, csr_matrix
+def calc_H_alphabeta_s12mu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, Minv, M1M, s1, s2, mu1, mu2, delta):
 
-def _swap_pairs_in_key(key, swap_pairs):
-    """Return a new key tuple with given index pairs swapped."""
-    key = list(key)
-    for a, b in swap_pairs:
-        key[a], key[b] = key[b], key[a]
-    return tuple(key)
+    # rAB, s1, s2 - only primitives (scalars)
+    inv_rAB = 1.0 / rAB
+    rAB_2 = rAB * rAB
+    inv_rAB_2 = inv_rAB * inv_rAB
+    inv_s1 = 1.0 / s1
+    inv_s1_2 = inv_s1**2
+    s1_2 = s1**2
+    inv_s2 = 1.0 / s2
+    inv_s2_2 = inv_s2**2
+    s2_2 = s2**2
 
-def _orbit_under_generators(k, gen_fns):
-    """Generate the orbit of k under a set of generator functions."""
-    seen = set([k])
-    stack = [k]
-    while stack:
-        cur = stack.pop()
-        for g in gen_fns:
-            nxt = g(cur)
-            if nxt not in seen:
-                seen.add(nxt)
-                stack.append(nxt)
-    return seen
+    # e1-only primitives
+    inv_rA1 = 1.0 / rA1
+    inv_rB1 = 1.0 / rB1
+    rA1_2 = rA1 * rA1
+    rB1_2 = rB1 * rB1
+    mu1_2 = mu1**2
+    inv_mu1 = 1 / mu1
+    inv_mu1_2 = inv_mu1 * inv_mu1
+    v1 = inv_rA1 + inv_rB1
+    cos1AB = (rA1_2 + rAB_2 - rB1_2) * inv_rA1 * inv_rAB  * 0.5
+    cos1BA = (rAB_2 + rB1_2 - rA1_2) * inv_rAB * inv_rB1  * 0.5
+    cosA1B = (rA1_2 - rAB_2 + rB1_2) * inv_rA1 * inv_rB1  * 0.5
 
-def build_symmetry_L_electron_and_nuclei(
-    keys,
-    *,
-    sym_only=True,          # you said symmetric only; keep flag for sanity
-    normalize=True,
-    # Indices for rij-style key = (n,m,i,j,k,h,a,b) by default:
-    idx_e1=(0, 1),          # (n, m)  exponents tied to electron 1
-    idx_e2=(2, 3),          # (i, j)  exponents tied to electron 2
-    idx_A=(0, 2),           # indices tied to nucleus A: rA1 exponent and rA2 exponent
-    idx_B=(1, 3),           # indices tied to nucleus B: rB1 exponent and rB2 exponent
-    idx_ab=(6, 7),          # (a, b) hyperradius-like exponents around A and B (swap under A<->B)
-    require_closure=True,   # raise if any orbit partner missing
-):
-    """
-    Build sparse L (n_raw x n_new) that maps raw basis columns -> columns
-    symmetric under BOTH electron swap (1<->2) AND nucleus swap (A<->B).
+    # e2-only primitives
+    inv_rA2 = 1.0 / rA2
+    inv_rB2 = 1.0 / rB2
+    rA2_2 = rA2 * rA2
+    rB2_2 = rB2 * rB2
+    mu2_2 = mu2**2
+    inv_mu2 = 1.0 / mu2
+    inv_mu2_2 = inv_mu2 * inv_mu2
+    v2 = inv_rA2 + inv_rB2
+    cos2AB = (rA2_2 + rAB_2 - rB2_2) * inv_rA2 * inv_rAB  * 0.5
+    cos2BA = (rAB_2 + rB2_2 - rA2_2) * inv_rAB * inv_rB2  * 0.5
+    cosA2B = (rA2_2 - rAB_2 + rB2_2) * inv_rA2 * inv_rB2  * 0.5
 
-    keys: list of tuples, one per raw basis column, ordered like your matrices.
+    P1 = rA1.size
+    P2 = rA2.size
+    P = P1 * P2
 
-    Returns:
-      L: csr_matrix shape (n_raw, n_new)
-      new_keys: list describing each new symmetrized column (orbit representative)
-    """
-    if not sym_only:
-        raise ValueError("This function is set up for symmetric-only. If you need antisym too, say so.")
+    # expand e1
+    rA1_2 = np.repeat(rA1_2, P2)
+    rB1_2 = np.repeat(rB1_2, P2)
+    inv_rA1 = np.repeat(inv_rA1, P2)
+    inv_rB1 = np.repeat(inv_rB1, P2)
+    mu1 = np.repeat(mu1, P2)
+    inv_mu1 = np.repeat(inv_mu1, P2)
+    inv_mu1_2 = np.repeat(inv_mu1_2, P2)
+    v1 = np.repeat(v1, P2)
+    cos1AB = np.repeat(cos1AB, P2)
+    cos1BA = np.repeat(cos1BA, P2)
+    cosA1B = np.repeat(cosA1B, P2)
 
-    col_of = {k: i for i, k in enumerate(keys)}
-    used = set()
+    # expand e2
+    rA2_2 = np.tile(rA2_2, P1)
+    rB2_2 = np.tile(rB2_2, P1)
+    inv_rA2 = np.tile(inv_rA2, P1)
+    inv_rB2 = np.tile(inv_rB2, P1)
+    mu2 = np.tile(mu2, P1)
+    inv_mu2 = np.tile(inv_mu2, P1)
+    inv_mu2_2 = np.tile(inv_mu2_2, P1)
+    v2 = np.tile(v2, P1)
+    cos2AB = np.tile(cos2AB, P1)
+    cos2BA = np.tile(cos2BA, P1)
+    cosA2B = np.tile(cosA2B, P1)
 
-    # Define the two generators on keys.
-    def P_e(k):
-        # swap electron 1 and 2 blocks: (n,m) <-> (i,j)
-        return _swap_pairs_in_key(k, list(zip(idx_e1, idx_e2)))
+    inv_r12 = 1.0 / r12
+    r12_2 = r12 * r12
+    inv_r12_2 = inv_r12 * inv_r12
 
-    def P_n(k):
-        # swap nucleus labels A and B:
-        # swap rA1<->rB1 and rA2<->rB2 (equivalently swap indices idx_A with idx_B)
-        swap_pairs = list(zip(idx_A, idx_B))
-        # also swap a<->b if present/meaningful
-        if idx_ab is not None:
-            swap_pairs.append(tuple(idx_ab))
-        return _swap_pairs_in_key(k, swap_pairs)
+    inv_rA1_rB1 = inv_rA1 * inv_rB1 * M1M
+    inv_rA2_rB2 = inv_rA2 * inv_rB2 * M1M
+    v12 = v1 + v2
 
-    gen_fns = (P_e, P_n)
+    cos12A = (r12_2 - rA1_2 + rA2_2) * inv_r12 * inv_rA2  * 0.5
+    cos12B = (r12_2 - rB1_2 + rB2_2) * inv_r12 * inv_rB2  * 0.5
+    cos1A2 = (rA1_2 + rA2_2 - r12_2) * inv_rA1 * inv_rA2  * 0.5
+    cos1B2 = (rB1_2 + rB2_2 - r12_2) * inv_rB1 * inv_rB2  * 0.5
+    cos21A = (r12_2 + rA1_2 - rA2_2) * inv_r12 * inv_rA1  * 0.5
+    cos21B = (r12_2 + rB1_2 - rB2_2) * inv_r12 * inv_rB1  * 0.5
 
-    rows, cols, data = [], [], []
-    new_keys = []
+    # Recurring combinations
+    one = np.ones_like(r12)
+    c1 = (cos1AB + cos1BA) * inv_rAB * Minv * one
+    c2 = (cos2AB + cos2BA) * inv_rAB * Minv * one
+    c3 = (cos21A + cos21B + cos12A + cos12B)
+    c4 = (cos1A2 + cos1B2) * Minv
 
-    for k in keys:
-        if k in used:
-            continue
+    c_n2 = -inv_s1_2 * M1M - cosA1B * inv_s1_2
+    c_n = -inv_rA1_rB1 + (cos21A + cos21B) * delta * inv_s1
+    c_m2 = -inv_s2_2 * M1M - cosA2B * inv_s2_2
+    c_m = -inv_rA2_rB2 + (cos12A + cos12B) * delta * inv_s2
+    c_k2 = -inv_r12_2 * one
+    c_k = 2 * delta * inv_r12 * one
+    c_i2 = -inv_mu1_2 * inv_rAB_2 * M1M + inv_rAB_2 * (inv_mu1 * cos1AB - inv_mu1 * cos1BA - 1) * Minv + cosA1B * inv_mu1_2 * inv_rAB_2
+    c_i = inv_mu1_2 * inv_rAB_2 * M1M + inv_rA1_rB1 + cos21A * delta * inv_mu1 * inv_rAB - cos21B * delta * inv_mu1 * inv_rAB - cosA1B * inv_mu1_2 * inv_rAB_2 + inv_rAB_2 * Minv
+    c_j2 = -inv_mu2_2 * inv_rAB_2 * M1M + inv_rAB_2 * (inv_mu2 * cos2AB - inv_mu2 * cos2BA - 1) * Minv + cosA2B * inv_mu2_2 * inv_rAB_2
+    c_j = inv_mu2_2 * inv_rAB_2 * M1M + inv_rA2_rB2 + cos12A * delta * inv_mu2 * inv_rAB - cos12B * delta * inv_mu2 * inv_rAB - cosA2B * inv_mu2_2 * inv_rAB_2 + inv_rAB_2 * Minv
+    c_h2 = -inv_rAB_2 * Minv *one
+    c_ni = inv_s1 * c1
+    c_mj = inv_s2 * c2
+    c_nj = -inv_rAB * inv_s1 * (inv_mu2 * cos1A2 - inv_mu2 * cos1B2 - cos1AB - cos1BA) * Minv
+    c_nm = -inv_s2 * c4 * inv_s1
+    c_jk = -inv_r12 * inv_rAB * (cos12A - cos12B) * inv_mu2
+    c_nh = -c_ni
+    c_ik = -inv_mu1 * inv_r12 * (cos21A - cos21B) * inv_rAB
+    c_mh = -c_mj
+    c_nk = -inv_r12 * (cos21A + cos21B) * inv_s1
+    c_mi = -inv_rAB * inv_s2 * (cos1A2 * inv_mu1 - inv_mu1 * cos1B2 - cos2AB - cos2BA) * Minv
+    c_jh = -inv_rAB_2 * (inv_mu2 * cos2AB - inv_mu2 * cos2BA - 2) * Minv
+    c_mk = -inv_r12 * (cos12A + cos12B) * inv_s2
+    c_ij = -inv_rAB_2 * (cos1A2 * inv_mu1 * inv_mu2 + cos1B2 * inv_mu1 * inv_mu2 - inv_mu1 * cos1AB + inv_mu1 * cos1BA - inv_mu2 * cos2AB + inv_mu2 * cos2BA + 2) * Minv  # todo: c4
+    c_ih = -inv_rAB_2 * (inv_mu1 * cos1AB - inv_mu1 * cos1BA - 2) * Minv
+    c_1 = -delta * (-2 * inv_r12 + delta) * one
 
-        orbit = _orbit_under_generators(k, gen_fns)
+    c_alpha_1 = M1M * v12 - delta * c3
+    c_alpha_n = 2 * inv_s1 * M1M + 2 * cosA1B * inv_s1 + inv_s1 * c4
+    c_alpha_m = 2 * inv_s2 * M1M + 2 * cosA2B * inv_s2 + inv_s2 * c4
+    c_alpha_i = inv_rAB * (cos1A2 * inv_mu1 - inv_mu1 * cos1B2 - cos1AB - cos1BA - cos2AB - cos2BA) * Minv
+    c_alpha_j = inv_rAB * (inv_mu2 * cos1A2 - inv_mu2 * cos1B2 - cos1AB - cos1BA - cos2AB - cos2BA) * Minv
+    c_alpha_h = c1 + c2
+    c_alpha_k = c3 * inv_r12
 
-        # Ensure closure: all orbit elements exist as raw columns
-        if require_closure:
-            missing = [q for q in orbit if q not in col_of]
-            if missing:
-                raise ValueError(
-                    f"Symmetry closure broken for key {k}. Missing {len(missing)} orbit partner(s), "
-                    f"e.g. {missing[0]}"
-                )
+    c_beta_1 = 2 * inv_rAB * Minv * one
+    c_beta_n = inv_s1 * (cos1AB + cos1BA) * Minv
+    c_beta_m = (cos2AB + cos2BA) * inv_s2 * Minv
+    c_beta_i = inv_rAB * (inv_mu1 * cos1AB - inv_mu1 * cos1BA - 2) * Minv
+    c_beta_j = inv_rAB * (inv_mu2 * cos2AB - inv_mu2 * cos2BA - 2) * Minv
+    c_beta_h = 2 * inv_rAB * Minv * one
 
-        # Mark used (only those present)
-        for q in orbit:
-            if q in col_of:
-                used.add(q)
+    c_alpha2_1 = -2 * M1M - (cosA1B + cosA2B) - (cos1A2 + cos1B2) * Minv
+    c_alphabeta_1 = -(cos1BA + cos2AB + cos2BA + cos1AB) * Minv
+    c_beta2_1 = -Minv
 
-        # Create one symmetric column from this orbit
-        present = [q for q in orbit if q in col_of]
-        m = len(present)
-        if m == 0:
-            continue
+    zero = np.zeros_like(r12)
+    coef_vector_1 = np.stack([c_n2, c_n, c_k2, c_k, c_m2, c_m, c_i2, c_i, c_j2, c_j, c_h2, zero, c_ni, c_mj, c_nj, c_nm, c_jk, c_nh, c_ik, c_mh, c_nk, c_mi, c_jh, c_mk, c_ij, c_ih, c_1], axis=1)
+    coef_vector_alpha = np.stack([zero, c_alpha_n, zero, c_alpha_k, zero, c_alpha_m, zero, c_alpha_i, zero, c_alpha_j, zero, c_alpha_h, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_alpha_1], axis=1)
+    coef_vector_beta = np.stack([zero, c_beta_n, zero, zero, zero, c_beta_m, zero, c_beta_i, zero, c_beta_j, zero, c_beta_h, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_beta_1], axis=1)
 
-        c = len(new_keys)
-        new_keys.append(("S", min(present)))  # store a stable representative
+    potential = potential_ri_inv(inv_rAB, inv_rA1, inv_rB1, inv_rA2, inv_rB2, inv_r12)
+    H_1_ij = coef_vector_1 @ Fij + potential[:, None]
+    H_1_ji = coef_vector_1 @ Fji + potential[:, None]
+    H_alpha_ij = coef_vector_alpha @ Fij
+    H_alpha_ji = coef_vector_alpha @ Fji
+    H_beta_ij = coef_vector_beta @ Fij
+    H_beta_ji = coef_vector_beta @ Fji
+    H_alpha2 = c_alpha2_1[:, None]
+    H_alphabeta = c_alphabeta_1[:, None]
+    H_beta2 = c_beta2_1
 
-        coeff = (1.0 / np.sqrt(m)) if normalize else 1.0
-        for q in present:
-            rows.append(col_of[q])
-            cols.append(c)
-            data.append(coeff)
-
-    L = coo_matrix((data, (rows, cols)), shape=(len(keys), len(new_keys))).tocsr()
-    return L, new_keys
-
-
-
+    return H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_alpha2, H_alphabeta, H_beta_ij, H_beta_ji, H_beta2
 
