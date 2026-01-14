@@ -1,4 +1,5 @@
 import numpy as np
+from numpy.ma.core import zeros_like
 
 
 def potential_ri(rAB, rA1, rB1, rA2, rB2, r12):
@@ -30,16 +31,9 @@ def power_table(x, p_max, p_min=0):
 
     return out
 
-def calc_F_rij(h_idx, k_idx, n_idx, m_idx, i_idx, j_idx, a_idx, b_idx):
+def calc_F_rij(basis_idx):
 
-    h = h_idx.astype(np.float64)
-    k = k_idx.astype(np.float64)
-    n = n_idx.astype(np.float64)
-    m = m_idx.astype(np.float64)
-    i = i_idx.astype(np.float64)
-    j = j_idx.astype(np.float64)
-    a = a_idx.astype(np.float64)
-    b = b_idx.astype(np.float64)
+    h, k, n, m, i, j, a, b = expand_idx(basis_idx.astype(np.float64), "rij")
 
     F = np.stack([n * n + n, n, k * n, n * m, n * i, m * m + m, m, m * k, m * j,
                      i * i + i, i, i * j, i * k, i * h, j * j + j, j, j * k, j * h,
@@ -50,29 +44,20 @@ def calc_F_rij(h_idx, k_idx, n_idx, m_idx, i_idx, j_idx, a_idx, b_idx):
     return F
 
 
-def calc_Fij_s12mu(h_idx, k_idx, n_idx, m_idx, i_idx, j_idx):
+def calc_Fij_s12mu(basis_idx):
 
-    h = h_idx.astype(np.float64)
-    k = k_idx.astype(np.float64)
-    n = n_idx.astype(np.float64)
-    m = m_idx.astype(np.float64)
-    i = i_idx.astype(np.float64)
-    j = j_idx.astype(np.float64)
+    h, k, n, m, i, j, _, _ = expand_idx(basis_idx.astype(np.float64), "s12mu")
     Fij = np.stack([n*n - n, n, k*k + k, k, m*m - m, m, i*i, i, j*j, j, h*h + h, h, n*i, m*j, n*j, n*m, j*k, n*h, i*k, m*h, n*k, m*i, j*h, m*k, i*j, i*h, np.ones_like(n)], axis=0)
 
-    h = h_idx.astype(np.float64)  # switch 1 <-> 2
-    k = k_idx.astype(np.float64)
-    n = m_idx.astype(np.float64)
-    m = n_idx.astype(np.float64)
-    i = j_idx.astype(np.float64)
-    j = i_idx.astype(np.float64)
+    h, k, m, n, j, i, _, _ = expand_idx(basis_idx.astype(np.float64), "s12mu")  # switch 1 <-> 2
     Fji = np.stack([n*n - n, n, k*k + k, k, m*m - m, m, i*i, i, j*j, j, h*h + h, h, n*i, m*j, n*j, n*m, j*k, n*h, i*k, m*h, n*k, m*i, j*h, m*k, i*j, i*h, np.ones_like(n)], axis=0)
 
     return Fij, Fji
 
 
-def calc_Fij_stmu(h_idx, k_idx, n_idx, m_idx, i_idx, j_idx):
+def calc_Fij_stmu(basis_idx):
 
+    h, k, n, m, i, j, _, _ = expand_idx(basis_idx.astype(np.float64), "stmu")
 
     Fij = np.stack([n * n - n, n, k * n, n * m, n * (m - h), n * i, n * j,
                      m * m, m, m * k, m * i, m * j, m * (i + j - h),
@@ -647,4 +632,164 @@ def calc_H_alphabeta_s12mu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, Minv, M1M, s1
     H_beta2 = c_beta2_1
 
     return H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_alpha2, H_alphabeta, H_beta_ij, H_beta_ji, H_beta2
+
+def expand_idx(basis_idx, coords):
+    # Shorthands for later use (no copies)
+    h_idx = basis_idx[:, 0]
+    k_idx = basis_idx[:, 1]
+    n_idx = basis_idx[:, 2]
+    m_idx = basis_idx[:, 3]
+    i_idx = basis_idx[:, 4]
+    j_idx = basis_idx[:, 5]
+    if coords == "rij":
+        a_idx = basis_idx[:, 6]
+        b_idx = basis_idx[:, 7]
+    else:
+        a_idx = zeros_like(h_idx)
+        b_idx = zeros_like(h_idx)
+    return h_idx, k_idx, n_idx, m_idx, i_idx, j_idx, a_idx, b_idx
+
+def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X=None):
+
+        rA1 = np.sqrt((x1 + rAB/2) ** 2 + y1 ** 2)
+        rB1 = np.sqrt((x1 - rAB/2) ** 2 + y1 ** 2)  # vectorized distances
+
+        rA2 = np.sqrt((x2 + rAB / 2) ** 2 + y2 ** 2 + z2 ** 2)
+        rB2 = np.sqrt((x2 - rAB / 2) ** 2 + y2 ** 2 + z2 ** 2)
+
+        matSize = basis_idx[:, 0].size
+        h_idx, k_idx, n_idx, m_idx, i_idx, j_idx, a_idx, b_idx = expand_idx(basis_idx, coords)
+        # k_min = np.min(k_idx)
+        k_max = np.max(k_idx)
+        # n_min = np.min(n_idx)
+        n_max = np.max(n_idx)
+        # m_min = np.min(m_idx)
+        # m_max = np.max(m_idx)
+        # ij_min = np.min(i_idx)
+        ij_max = np.max(i_idx)
+        a_min = np.min(a_idx)
+        a_max = np.max(a_idx)
+
+        # r12-dependent quantities
+        dx = x1[:, None] - x2[None, :]
+        dy = y1[:, None] - y2[None, :]
+        dz = 0.0 - z2[None, :]
+        r12 = np.sqrt(dx * dx + dy * dy + dz * dz).ravel()  # vector of r12 values for all e1, e2 positions
+        r12 = np.maximum(r12, 10 ** (-8))
+        r12_p = power_table(r12, k_max)
+
+        P1 = rA1.size
+        P2 = rA2.size
+        P = P1 * P2
+
+        if coords == "stmu":
+            H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_alpha2, H_alphabeta, H_beta_ij, H_beta_ji, H_beta2 = calc_H_alphabeta_stmu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1, s2, s, mu1, mu2, delta)
+            mu1_p = power_table(mu1, ij_max)
+            mu2_p = power_table(mu2, ij_max)
+            mu1_p = np.repeat(mu1_p, P2, axis=0)  # shape (P, Npow)  # Tile/repeat single-electron arrays to match the entire sample point array
+            mu2_p = np.tile(mu2_p, (P1, 1))
+            t = (s1 - s2) / rAB * 0.5
+
+            # Assemble basis functions from power matrices
+            B = np.ones((r12_p.shape[0], matSize), dtype=np.float64) * (rAB ** h_idx * s ** n_idx * t ** m_idx)[None, :]
+            B *= r12_p[:, k_idx]
+            B *= np.exp(-delta*r12)[:, None]
+
+            mu_part_ij = mu1_p[:, i_idx] * mu2_p[:, j_idx]
+            mu_part_ji = mu1_p[:, j_idx] * mu2_p[:, i_idx]
+
+            B_ij = B * mu_part_ij
+            B_ji = B * mu_part_ji
+
+            B = B_ij + B_ji
+
+            A_1 = H_1_ij * B_ij + H_1_ji * B_ji
+            A_alpha = H_alpha_ij * B_ij + H_alpha_ji * B_ji
+            A_beta = H_beta_ij * B_ij + H_beta_ji * B_ji
+            A_alpha2 = H_alpha2 * (B_ij + B_ji)
+            A_alphabeta = H_alphabeta * (B_ij + B_ji)
+            # A_beta2 = H_beta2 * (B_ij + B_ji)
+
+        elif coords == "s12mu":
+            H_1_12, H_1_21, H_alpha_12, H_alpha_21, H_alpha2, H_alphabeta, H_beta_12, H_beta_21, H_beta2 = calc_H_alphabeta_s12mu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1, s2, mu1, mu2, delta)
+
+            mu1_p = power_table(mu1, ij_max)
+            mu2_p = power_table(mu2, ij_max)
+            mu1_p = np.repeat(mu1_p, P2, axis=0)  # shape (P, Npow)  # Tile/repeat single-electron arrays to match the entire sample point array
+            mu2_p = np.tile(mu2_p, (P1, 1))
+
+            # Assemble basis functions from power matrices
+            B = np.broadcast_to(rAB**h_idx, (P, matSize)).copy()
+            B *= r12_p[:, k_idx]
+            B *= np.exp(-delta*r12)[:, None]
+
+            if np.ndim(s1) == 0:
+                part_12 = mu1_p[:, i_idx] * mu2_p[:, j_idx] * s1 ** n_idx * s2 ** m_idx
+                part_21 = mu1_p[:, j_idx] * mu2_p[:, i_idx] * s1 ** m_idx * s2 ** n_idx
+            else: # just for plotting
+                part_12 = mu1_p[:, i_idx] * mu2_p[:, j_idx] * (s1[:, None] ** n_idx[None, :]) * s2 ** m_idx
+                part_21 = mu1_p[:, j_idx] * mu2_p[:, i_idx] * (s1[:, None] ** m_idx[None, :]) * s2 ** n_idx
+
+            B_12 = B * part_12
+            B_21 = B * part_21
+
+            B = B_12 + B_21
+
+            A_1 = H_1_12 * B_12 + H_1_21 * B_21
+            A_alpha = H_alpha_12 * B_12 + H_alpha_21 * B_21
+            A_beta = H_beta_12 * B_12 + H_beta_21 * B_21
+            A_alpha2 = H_alpha2 * B
+            A_alphabeta = H_alphabeta * B
+            # A_beta2 = H_beta2 * B
+
+        elif coords == "rij":
+            H_1, H_alpha, H_alpha2, H_alphabeta, H_beta, H_beta2, inv_rA, inv_rB = calc_H_alphabeta_rij(Fij, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, delta)
+
+            rA1_p = power_table(rA1, n_max)
+            rB1_p = power_table(rB1, n_max)
+            rA2_p = power_table(rA2, n_max)
+            rB2_p = power_table(rB2, n_max)
+            inv_rA_p  = power_table(inv_rA, int(a_max), int(a_min))  # already full size P
+            inv_rB_p  = power_table(inv_rB, int(a_max), int(a_min))
+
+            rA1_p = np.repeat(rA1_p, P2, axis=0)  # shape (P, Npow)
+            rB1_p = np.repeat(rB1_p, P2, axis=0)  # shape (P, Npow)
+            rA2_p = np.tile(rA2_p, (P1, 1))
+            rB2_p = np.tile(rB2_p, (P1, 1))
+
+            # Assemble basis functions from power matrices
+            B = np.broadcast_to(rAB**h_idx, (P, matSize)).copy() # rA1^n*rB1^m*rA2^i*rB2^j*r12^k*rAB^h/rA^a/rB^b
+            B *= rA1_p[:, n_idx]
+            B *= rA2_p[:, i_idx]
+            B *= rB1_p[:, m_idx]
+            B *= rB2_p[:, j_idx]
+            B *= r12_p[:, k_idx]
+            B *= inv_rA_p[:, a_idx]
+            B *= inv_rB_p[:, b_idx]
+            B *= np.exp(-delta*r12)[:, None]
+
+            sqrtW = np.sqrt((W) * (w1[:, None] * w2[None, :]).ravel())  # (P,)
+            B *= sqrtW[:, None]
+
+            # Apply Hamiltonian prefactors
+            A_1 = H_1 * B
+            A_alpha = H_alpha * B
+            A_alpha2 = H_alpha2 * B
+            A_alphabeta = H_alphabeta * B
+            A_beta = H_beta * B
+
+            # Apply linear combinations to assemble symmetric basis
+            # B, A_1, A_alpha, A_alpha2, A_alphabeta, A_beta, A_beta2 = combine_fcts(B, A_1, A_alpha, A_alpha2, A_alphabeta, A_beta, A_beta2, groups)
+            B = B @ X
+            A_1 = A_1 @ X
+            A_alpha = A_alpha @ X
+            A_alpha2 = A_alpha2 @ X
+            A_alphabeta = A_alphabeta @ X
+            A_beta = A_beta @ X
+            # A_beta2 = A_beta2 @ X
+
+        # if abs(s2-plot_s2_target) < 1e-8:
+        #     plot_chunks = update_plot_chunks(plot_chunks, mu2, B, P1, P2, x1, y1, phi2, plot_phi_target, A_1, A_alpha, A_alpha2, A_alphabeta, A_beta, A_beta2)
+
+        return B, A_1, A_alpha, A_beta, A_alphabeta, A_alpha2, P
 
