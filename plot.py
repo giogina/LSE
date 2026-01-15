@@ -4,6 +4,14 @@ import matplotlib as mpl
 from matplotlib.widgets import Slider
 from scipy.linalg import eig
 
+from calc import calc_F_ee, calc_F_ne
+
+
+def clustered_linspace(vmin, vmax, n, strength=2.5):
+    # maps uniform u in [-1,1] to clustered x in [vmin,vmax]
+    u = np.linspace(-1.0, 1.0, int(n))
+    w = np.sinh(strength * u) / np.sinh(strength)  # still in [-1,1], denser near 0
+    return 0.5*(vmin+vmax) + 0.5*(vmax-vmin)*w
 
 def plot_mu2_with_alpha_beta(
     *,
@@ -70,9 +78,9 @@ def plot_mu2_with_alpha_beta(
     # Build x1,y1 grid for plotting (electron 1 in xy plane)
     # ---------------------------
     rAB = float(plot_rAB_target)
+    x1_vals = clustered_linspace(x1_min, x1_max, nx1, strength=3.0)
+    y1_vals = clustered_linspace(y1_min, y1_max, ny1, strength=3.5)
 
-    x1_vals = np.linspace(float(x1_min), float(x1_max), int(nx1))
-    y1_vals = np.linspace(float(y1_min), float(y1_max), int(ny1))
     X1, Y1 = np.meshgrid(x1_vals, y1_vals, indexing="xy")  # both (ny1, nx1)
     x1_flat = X1.ravel()
     y1_flat = Y1.ravel()
@@ -133,6 +141,30 @@ def plot_mu2_with_alpha_beta(
     eig_cache = {}   # (ia,ib) -> {"alpha","beta","E","C","sol_idx",...}
     geom_cache = {}  # (x2,y2,z2 rounded) -> {"B","A*","s_total","s2","x2","y2","z2"}
 
+    def surface_grid_colored(ax, X, Y, Z, cmap_name, vmin=None, vmax=None, alpha=0.8):
+        Z = np.asarray(Z)
+
+        if vmin is None:
+            vmin = np.nanmin(Z)
+        if vmax is None:
+            vmax = np.nanmax(Z)
+
+        cmap = plt.get_cmap(cmap_name)
+        norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax, clip=True)
+
+        fc = cmap(norm(Z))
+        fc[..., 3] *= alpha  # transparency
+        fc[~np.isfinite(Z), 3] = 0.0  # NaNs transparent
+
+        ax.plot_surface(
+            X, Y, Z,
+            facecolors=fc,
+            rstride=1, cstride=1,
+            linewidth=0,
+            antialiased=False,
+            shade=False,
+        )
+
     def assemble_HS(alpha, beta):
         S = np.zeros((matSize, matSize), dtype=np.float64)
         H = np.zeros((matSize, matSize), dtype=np.float64)
@@ -167,12 +199,14 @@ def plot_mu2_with_alpha_beta(
         H, S = assemble_HS(alpha, beta)
 
         eigS = np.linalg.eigvalsh(S)
+        print(eigS)
         cond = float(eigS.max() / eigS.min())
 
         E, C = eig(H, S)
         idx = np.argsort(np.real(E))
         E = np.real(E[idx])
         C = np.real(C[:, idx])
+        print(E[0], C[0])
 
         scale = C[0, :]
         scale[scale == 0.0] = 1.0
@@ -215,28 +249,23 @@ def plot_mu2_with_alpha_beta(
         mu2 = (rA2 - rB2) / rAB
 
         # pointwise s_total over the electron-1 grid (shape (P1,))
-        s_total = s1 + float(s2[0])
-
-        # weights all ones
+        s = s1 + s2
         w2 = np.ones_like(x2)
-
-        # IMPORTANT: pass a pointwise s array of length P1 (not repeated)
-        # If your calc_AB expects scalar s for s12mu, you can pass float(s1_mean+s2) instead,
-        # but your current plotting path uses pointwise s_total.
-        s_arg = s_total
 
         B, A1, Aa, Ab, Aab, Aa2, P = calc_AB(
             x1_flat, y1_flat,
             x2, y2, z2,
             rAB,
-            s_arg, s1, s2,  # s: (P1,), s1:(P1,), s2:(1,)
+            s, s1, s2,  # s: (P1,), s1:(P1,), s2:(1,)
             mu1, mu2,  # mu1:(P1,), mu2:(1,)
             w1, w2,
             shell_weight,
             coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X
         )
 
-        # sanity: should match the plot grid
+        Bee, Fee = calc_F_ee(x1_flat, y1_flat, rAB, coords, basis_idx, delta)
+        Bne, Fne_1, Fne_alpha = calc_F_ne(x1_flat, y1_flat, rAB, coords, basis_idx)
+
         if B.shape[0] != P1:
             raise ValueError(
                 f"calc_AB returned {B.shape[0]} rows, expected {P1}. Check s/mu broadcasting inside calc_AB.")
@@ -246,7 +275,7 @@ def plot_mu2_with_alpha_beta(
         entry = {
             "x2": key[0], "y2": key[1], "z2": key[2],
             "s2": float(s2[0]),
-            "s_total": s_total,  # length P1
+            "s_total": s,  # length P1
             "B": B,
             "A1": A1,
             "Aa": Aa,
@@ -254,6 +283,11 @@ def plot_mu2_with_alpha_beta(
             "Aa2": Aa2,
             "Aab": Aab,
             "Ab2": Ab2,
+            "Bee": Bee,
+            "Fee": Fee,
+            "Bne": Bne,
+            "Fne_1": Fne_1,
+            "Fne_alpha": Fne_alpha,
         }
         geom_cache[key] = entry
         return entry
@@ -261,9 +295,10 @@ def plot_mu2_with_alpha_beta(
     # ---------------------------
     # Figure + sliders
     # ---------------------------
-    fig = plt.figure(figsize=(14, 8))
-    ax_phi  = fig.add_subplot(1, 2, 1, projection="3d")
-    ax_eloc = fig.add_subplot(1, 2, 2, projection="3d")
+    fig = plt.figure(figsize=(18, 8))
+    ax_phi = fig.add_subplot(1, 3, 1, projection="3d")
+    ax_eloc = fig.add_subplot(1, 3, 2, projection="3d")
+    ax_cusp = fig.add_subplot(1, 3, 3, projection="3d")
     fig.subplots_adjust(bottom=0.34)
 
     # long sliders
@@ -276,16 +311,16 @@ def plot_mu2_with_alpha_beta(
     ax_y2 = fig.add_axes([0.41, 0.10, 0.22, 0.035])
     ax_z2 = fig.add_axes([0.67, 0.10, 0.22, 0.035])
 
-    s_alpha = Slider(ax_alpha, "alpha idx", 0, len(alpha_values)-1, valinit=0, valstep=1)
+    s_alpha = Slider(ax_alpha, "alpha idx", 0, len(alpha_values)-1, valinit=1.0, valstep=1)
     s_beta  = Slider(ax_beta,  "beta idx",  0, len(beta_values)-1,  valinit=0, valstep=1)
 
     # i slider max depends on alpha/beta; we rebuild bounds dynamically
     s_i = Slider(ax_i, "i", 0, 1, valinit=0, valstep=1)
 
     # x2,y2,z2 sliders in [0,3]
-    s_x2 = Slider(ax_x2, "x2", 0.0, 3.0, valinit=0.0)
-    s_y2 = Slider(ax_y2, "y2", 0.0, 3.0, valinit=0.0)
-    s_z2 = Slider(ax_z2, "z2", 0.0, 3.0, valinit=0.0)
+    s_x2 = Slider(ax_x2, "x2", 0.0, 3.0, valinit=0.4)
+    s_y2 = Slider(ax_y2, "y2", 0.0, 3.0, valinit=0.4)
+    s_z2 = Slider(ax_z2, "z2", 0.0, 3.0, valinit=0.4)
 
     def update_i_slider_max(n):
         nonlocal s_i
@@ -307,36 +342,28 @@ def plot_mu2_with_alpha_beta(
         if int(s_i.val) > sol_idx.size - 1 or int(getattr(s_i, "valmax", 0)) != sol_idx.size - 1:
             update_i_slider_max(sol_idx.size)
 
-        ii = int(s_i.val)
-        i_real = int(sol_idx[ii])
-
         # geometry (x2,y2,z2)
         geom = get_cached_geom(s_x2.val, s_y2.val, s_z2.val)
 
         # projections for all shown solutions
-        Csel = C[:, sol_idx]  # (Nb, nshown)
         B   = geom["B"];   A1  = geom["A1"];  Aa = geom["Aa"];  Ab = geom["Ab"]
         Aa2 = geom["Aa2"]; Aab = geom["Aab"]; Ab2 = geom["Ab2"]
         s_total = geom["s_total"]  # length P1
 
-        BC   = (B   @ Csel).T
-        A1C  = (A1  @ Csel).T
-        AaC  = (Aa  @ Csel).T
-        AbC  = (Ab  @ Csel).T
-        Aa2C = (Aa2 @ Csel).T
-        AabC = (Aab @ Csel).T
-        Ab2C = (Ab2 @ Csel).T
+        ii = int(s_i.val)
+        i_real = int(sol_idx[ii])
+        c = C[:, i_real]  # single eigenvector
+
+        psi0 = B @ c
+        A1c = A1 @ c
+        Aac = Aa @ c
+        Abc = Ab @ c
+        Aa2c = Aa2 @ c
+        Aabc = Aab @ c
+        Ab2c = Ab2 @ c
 
         # pointwise exp factor
         exps = np.exp(-alpha * s_total - beta * rAB)
-
-        psi0 = BC[ii, :]
-        A1c  = A1C[ii, :]
-        Aac  = AaC[ii, :]
-        Abc  = AbC[ii, :]
-        Aa2c = Aa2C[ii, :]
-        Aabc = AabC[ii, :]
-        Ab2c = Ab2C[ii, :]
 
         psi = exps * psi0
         Hpsi = exps * (
@@ -360,6 +387,44 @@ def plot_mu2_with_alpha_beta(
         psi_grid  = psi.reshape(Y1.shape)
         Eloc_grid = Eloc.reshape(Y1.shape)
 
+        # Cusp surfaces (if implemented)
+        Bee = geom["Bee"]
+        if len(np.shape(Bee)) > 0:
+            Fee = geom["Fee"]
+            Bee_c = Bee @ c
+            Fee_c = Fee @ c
+            denom_cusp = np.where(np.abs(Bee_c) < eps, np.nan, Bee_c)
+            cusp_ee = Fee_c / denom_cusp
+            cusp_ee_grid = cusp_ee.reshape(Y1.shape)
+            Bne = geom["Bne"]
+            Fne_1 = geom["Fne_1"]
+            Fne_alpha = geom["Fne_alpha"]
+            Fne = Fne_1 + Fne_alpha * alpha
+            Bne_c = Bne @ c
+            Fne_c = Fne @ c
+            denom_cusp = np.where(np.abs(Bne_c) < eps, np.nan, Bne_c)
+            cusp_ne = Fne_c / denom_cusp
+            cusp_ne_grid = cusp_ne.reshape(Y1.shape)
+            ax_cusp.clear()
+
+            # electron–electron cusp (yellow/orange palette)
+            surface_grid_colored(
+                ax_cusp, X1, Y1, cusp_ee_grid,
+                cmap_name="plasma",  # yellow–purple, very readable
+                vmin=-2.0, vmax=2.0,  # cusp residuals should be near 0
+                alpha=0.75
+            )
+
+            # electron–nucleus cusp (blue/green palette)
+            surface_grid_colored(
+                ax_cusp, X1, Y1, cusp_ne_grid,
+                cmap_name="viridis",
+                vmin=-2.0, vmax=2.0,
+                alpha=0.55
+            )
+
+            ax_cusp.set_zlim(-2.0, 2.0)
+
         ax_phi.clear()
         ax_eloc.clear()
 
@@ -372,6 +437,11 @@ def plot_mu2_with_alpha_beta(
             ax_eloc.set_zlim(float(zlim_eloc[0]), float(zlim_eloc[1]))
         else:
             surface_grid_colored_discrete(ax_eloc, X1, Y1, Eloc_grid, cmap_name="viridis", nlevels=int(eloc_levels))
+
+
+        # surface_grid_colored_discrete(ax_cusp, X1, Y1, cusp_grid, cmap_name="viridis", nlevels=128, vmin=-2.0, vmax=2.0)
+
+
 
         # mark electron 2 position (orange dot), place at top z so it stays visible
         zmax1 = ax_phi.get_zlim()[1]

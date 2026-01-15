@@ -15,25 +15,23 @@ k_max = 8
 n_max = 8
 m_max = 8 # stmu only
 ij_max = 8 # stmu only
-ab_max = 1 # rij only
-nm_min = -0 # s12mu only
-total_max = 3
-delta = 0.1
+ab_max = 0 # rij only
+nm_min = 0 # s12mu only (minimum power of s1, s2)
+total_max = 6
+delta = 0.0
 
 # delta = 0.1: E[0] := -1.174474883468479:
 # E[0] := -1.1744788198234721 at delta=0.1, alpha=0.695
 
-plot_phi_target = np.pi/2*0.1
 plot_rAB_target = 1.4
-plot_s2_target = 2
 
 nMu = 24
-nS = 10
+nS = 30
 sMax = 50
 
 # coords = "rij"
-# coords = "stmu"
-coords = "s12mu"
+coords = "stmu"
+# coords = "s12mu"
 
 if BO:
     M1M = 1
@@ -94,10 +92,6 @@ if coords == "rij":
                                     rows.append((h, k, n, m, i, j, a, b))
                                     amin = min(a, amin)
                                     amax = max(a, amax)
-    # X = np.zeros((len(rows), len(sym_b.keys())), dtype=int)
-    # for col, l in enumerate(sym_b.values()):
-    #     for idx in l:
-    #         X[idx, col] = 1
 
     row_idx = []
     col_idx = []
@@ -127,6 +121,7 @@ elif coords == "stmu" or coords == "s12mu":
                                 if i == j and m>n: continue # avoid duplication of (n, m, i, j=i) and (m, n, j=i, i)
                             t = h + k + n + m + i + j
                             if t > total_max: continue
+                            # rows.append((h, k, n - np.floor(i/2), m - np.floor(j/2), i, j))  #-k-m
                             rows.append((h, k, n, m, i, j))  #-k-m
 
 
@@ -159,9 +154,6 @@ H_alpha_beta_layers = {}
 
 for rAB in abRange:
     s_shells, sW = build_s_shells(rAB, Ks=nS, s_max=sMax, gamma = 3.0)
-    idx = np.abs(s_shells - plot_s2_target - plot_rAB_target).argmin()
-    plot_s2_target = s_shells[idx] - plot_rAB_target - 0.0001  # Ensure small s1 values are included in the plot-sampling
-    print(f"s2 = {plot_s2_target}")
 
     for ks, s in enumerate(s_shells):
 
@@ -174,11 +166,6 @@ for rAB in abRange:
         Hl_alphabeta = np.zeros((bSize, bSize), dtype=np.float64)
         Hl_beta = np.zeros((bSize, bSize), dtype=np.float64)
         Hl_beta2 = np.zeros((bSize, bSize), dtype=np.float64)
-
-        if s-rAB > plot_s2_target:
-            s2_vals = np.append(s2_vals, plot_s2_target)
-            s1_vals = np.append(s1_vals, s - plot_s2_target)
-            splitW = np.append(splitW, 0.0)
 
         for j, (s1, s2) in enumerate(zip(s1_vals, s2_vals)):
 
@@ -205,11 +192,11 @@ for rAB in abRange:
             Hl_beta += BT @ A_beta
             Hl_alpha2 += BT @ A_alpha2
             Hl_alphabeta += BT @ A_alphabeta
-            if coords == "s12mu":
-                Hl_beta2 += Sp * (-M_inv)  # H_beta2 is just a scalar -Minv -> avoid redoing the @
-            else:
-                A_beta2 = np.asfortranarray(A_beta2)
-                Hl_beta2 += BT @ A_beta2
+            # if coords == "s12mu":
+            Hl_beta2 += Sp * (-M_inv)  # H_beta2 is just a scalar -Minv -> avoid redoing the @
+            # else:
+            #     A_beta2 = np.asfortranarray(A_beta2)
+            #     Hl_beta2 += BT @ A_beta2
 
             nrP += P
 
@@ -228,10 +215,10 @@ plot_mu2_with_alpha_beta(
     calc_AB=calc_AB,
 
     # plot grid (electron 1)
-    x1_min=-4.0,
-    x1_max= 4.0,
-    y1_min=-4.0,
-    y1_max= 4.0,
+    x1_min=-9.0,
+    x1_max= 9.0,
+    y1_min=-9.0,
+    y1_max= 9.0,
     nx1=50,
     ny1=50,
 
@@ -255,11 +242,11 @@ plot_mu2_with_alpha_beta(
     H_alpha_beta_layers=H_alpha_beta_layers,
 
     # generalized eig helper
-    matSize=matSize,
+    matSize=bSize,
     diag_rescale_generalized=diag_rescale_generalized,
 
     # geometry labels / exp factor
-    plot_rAB_target=rAB,
+    plot_rAB_target=plot_rAB_target,
 
     # alpha/beta sliders
     alpha_values=np.arange(0.4, 1.3, 0.005),
@@ -269,4 +256,4 @@ plot_mu2_with_alpha_beta(
     only_negative_E=True,
     eps=1e-14,
     zlim_eloc=(-3.0, 0.0)
-)  # todo: starting x2, y2 somewhere non-zero
+)
