@@ -206,7 +206,7 @@ def plot_mu2_with_alpha_beta(
         idx = np.argsort(np.real(E))
         E = np.real(E[idx])
         C = np.real(C[:, idx])
-        print(E[0], C[0])
+        print(E[0])
 
         scale = C[0, :]
         scale[scale == 0.0] = 1.0
@@ -311,7 +311,7 @@ def plot_mu2_with_alpha_beta(
     ax_y2 = fig.add_axes([0.41, 0.10, 0.22, 0.035])
     ax_z2 = fig.add_axes([0.67, 0.10, 0.22, 0.035])
 
-    s_alpha = Slider(ax_alpha, "alpha idx", 0, len(alpha_values)-1, valinit=1.0, valstep=1)
+    s_alpha = Slider(ax_alpha, "alpha idx", 0, len(alpha_values)-1, valinit=100, valstep=1)
     s_beta  = Slider(ax_beta,  "beta idx",  0, len(beta_values)-1,  valinit=0, valstep=1)
 
     # i slider max depends on alpha/beta; we rebuild bounds dynamically
@@ -437,11 +437,6 @@ def plot_mu2_with_alpha_beta(
             ax_eloc.set_zlim(float(zlim_eloc[0]), float(zlim_eloc[1]))
         else:
             surface_grid_colored_discrete(ax_eloc, X1, Y1, Eloc_grid, cmap_name="viridis", nlevels=int(eloc_levels))
-
-
-        # surface_grid_colored_discrete(ax_cusp, X1, Y1, cusp_grid, cmap_name="viridis", nlevels=128, vmin=-2.0, vmax=2.0)
-
-
 
         # mark electron 2 position (orange dot), place at top z so it stays visible
         zmax1 = ax_phi.get_zlim()[1]

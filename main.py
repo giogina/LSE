@@ -14,11 +14,11 @@ h_max = 5
 k_max = 8
 n_max = 8
 m_max = 8 # stmu only
+nm_min = -0
 ij_max = 8 # stmu only
 ab_max = 0 # rij only
-nm_min = 0 # s12mu only (minimum power of s1, s2)
 total_max = 6
-delta = 0.0
+delta = 0.1
 
 # delta = 0.1: E[0] := -1.174474883468479:
 # E[0] := -1.1744788198234721 at delta=0.1, alpha=0.695
@@ -26,12 +26,12 @@ delta = 0.0
 plot_rAB_target = 1.4
 
 nMu = 24
-nS = 30
+nS = 40
 sMax = 50
 
 # coords = "rij"
-coords = "stmu"
-# coords = "s12mu"
+# coords = "stmu"
+coords = "s12mu"
 
 if BO:
     M1M = 1
@@ -118,7 +118,7 @@ elif coords == "stmu" or coords == "s12mu":
                             if coords == "stmu":
                                 if m % 2 != 0: continue
                             elif coords == "s12mu":
-                                if i == j and m>n: continue # avoid duplication of (n, m, i, j=i) and (m, n, j=i, i)
+                                if i == j and m > n: continue # avoid duplication of (n, m, i, j=i) and (m, n, j=i, i)
                             t = h + k + n + m + i + j
                             if t > total_max: continue
                             # rows.append((h, k, n - np.floor(i/2), m - np.floor(j/2), i, j))  #-k-m
