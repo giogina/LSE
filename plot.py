@@ -385,9 +385,6 @@ def plot_mu2_with_alpha_beta(
         exps = np.exp(-alpha * s_total - beta * rAB)
 
         psi = exps * psi0
-        psi = psi / (np.nanmax(np.abs(psi)) + 1e-300)
-        if np.max(psi) < np.abs(np.min(psi)):
-            psi *= -1.
 
         Hpsi = exps * (
             A1c
@@ -405,6 +402,10 @@ def plot_mu2_with_alpha_beta(
         E_i = float(E[i_real])
         diff = Eloc - E_i
         epsilon = float(np.nansum(diff * diff))
+
+        psi = psi / (np.nanmax(np.abs(psi)) + 1e-300)
+        if np.max(psi) < np.abs(np.min(psi)):
+            psi *= -1.
 
         # reshape to grid (ny1,nx1)
         psi_grid  = psi.reshape(Y1.shape)

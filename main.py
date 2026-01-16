@@ -250,5 +250,5 @@ plot_mu2_with_alpha_beta(
     # numerics / plot behavior
     only_negative_E=True,
     eps=1e-14,
-    zlim_eloc=(-3.0, 0.0)
+    # zlim_eloc=(-3.0, 0.0)
 )
