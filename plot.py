@@ -185,7 +185,7 @@ def plot_mu2_with_alpha_beta(
         for (rAB0, s0), Hl in H_beta_2_layers.items():
             H += Hl * (beta ** 2) * np.exp(-2 * alpha * s0 - 2 * beta * rAB0)
 
-        H, S = diag_rescale_generalized(H, S)
+        # H, S = diag_rescale_generalized(H, S)
         return H, S
 
     def get_cached_eigs(ia, ib):
@@ -202,20 +202,34 @@ def plot_mu2_with_alpha_beta(
         print(eigS)
         cond = float(eigS.max() / eigS.min())
 
-        E, C = eig(H, S)
+        def _asym(A):
+            # relative Frobenius norm of antisymmetric part
+            return np.linalg.norm(A - A.T) / max(1e-300, np.linalg.norm(A))
+
+        print("H dtype:", H.dtype, "S dtype:", S.dtype)
+        print("H asym rel:", _asym(H))
+        print("S asym rel:", _asym(S))
+
+        # symmetry of real/imag parts separately (if complex)
+        if np.iscomplexobj(H):
+            print("H imag max abs:", np.max(np.abs(np.imag(H))))
+        if np.iscomplexobj(S):
+            print("S imag max abs:", np.max(np.abs(np.imag(S))))
+
+        E, C = eig(H, S)  # todo: eigh?
         idx = np.argsort(np.real(E))
         E = np.real(E[idx])
         C = np.real(C[:, idx])
         print(E[0])
 
-        for j in range(C.shape[1]):
-            cj = C[:, j]
-            k = np.argmax(np.abs(cj))
-            if cj[k] < 0:
-                cj *= -1
-            nrm2 = float(cj @ (S @ cj))
-            if nrm2 > 0:
-                C[:, j] = cj / np.sqrt(nrm2)
+        # for j in range(C.shape[1]):
+        #     cj = C[:, j]
+        #     k = np.argmax(np.abs(cj))
+        #     if cj[k] < 0:
+        #         cj *= -1
+        #     nrm2 = float(cj @ (S @ cj))
+        #     if nrm2 > 0:
+        #         C[:, j] = cj / np.sqrt(nrm2)
 
         if only_negative_E:
             sol_idx = np.where(E < 0)[0]
@@ -316,7 +330,7 @@ def plot_mu2_with_alpha_beta(
     ax_y2 = fig.add_axes([0.41, 0.10, 0.22, 0.035])
     ax_z2 = fig.add_axes([0.67, 0.10, 0.22, 0.035])
 
-    s_alpha = Slider(ax_alpha, "alpha idx", 0, len(alpha_values)-1, valinit=100, valstep=1)
+    s_alpha = Slider(ax_alpha, "alpha idx", 0, len(alpha_values)-1, valinit=116, valstep=1)
     s_beta  = Slider(ax_beta,  "beta idx",  0, len(beta_values)-1,  valinit=0, valstep=1)
 
     # i slider max depends on alpha/beta; we rebuild bounds dynamically
@@ -371,6 +385,10 @@ def plot_mu2_with_alpha_beta(
         exps = np.exp(-alpha * s_total - beta * rAB)
 
         psi = exps * psi0
+        psi = psi / (np.nanmax(np.abs(psi)) + 1e-300)
+        if np.max(psi) < np.abs(np.min(psi)):
+            psi *= -1.
+
         Hpsi = exps * (
             A1c
             + alpha * Aac

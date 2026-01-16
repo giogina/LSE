@@ -25,14 +25,13 @@ delta = 0
 
 plot_rAB_target = 1.4
 
-nMu = 24
+nMu = 24  # todo: test effect of these values on solution quality
 nS = 30
 sMax = 50
 
-coords = "rij"
+# coords = "rij"
 # coords = "stmu"
-# coords = "s12mu" # todo: wtf, r12 cusp plot is 0.5 just in the middle? (Pre-factor (1+(1/2+delta)*r12) might fix it?)
-# todo: check that offset mu sampling doesn't mess with proper weighing
+coords = "s12mu" # todo: wtf, r12 cusp plot is 0.5 just in the middle? (Pre-factor (1+(1/2+delta)*r12) might fix it?)
 
 if BO:
     M1M = 1

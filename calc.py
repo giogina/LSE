@@ -815,15 +815,15 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
 
 
 def calc_F_ne(x1, y1, rAB, coords, basis_idx, X = None):
-    rA1 = np.sqrt((x1 + rAB / 2) ** 2 + y1 ** 2)
-    rB1 = np.sqrt((x1 - rAB / 2) ** 2 + y1 ** 2)  # vectorized distances
+    rA1 = np.sqrt((x1 + rAB / 2.) ** 2 + y1 ** 2.)
+    rB1 = np.sqrt((x1 - rAB / 2.) ** 2 + y1 ** 2.)  # vectorized distances
     s1 = rA1 + rB1
     mu1 = (rA1 - rB1) / rAB
 
     s2 = rAB
-    mu2 = -1  #  = (rA2-rB2)/rAB -> rAB = rB2, rA2 = 0, e2 in A -> r12 = rA1
+    mu2 = -1.0  #  = (rA2-rB2)/rAB -> rAB = rB2, rA2 = 0, e2 in A -> r12 = rA1
     r12 = rA1
-    rA2 = 0
+    rA2 = 0.0
     rB2 = rAB
 
     matSize = basis_idx[:, 0].size
@@ -848,10 +848,10 @@ def calc_F_ne(x1, y1, rAB, coords, basis_idx, X = None):
         part_21 = mu1_p[:, j_idx] * mu2 ** i_idx * s1_p[:, m_idx] * s2 ** n_idx
 
         # m*s2^(m-1)*mu2^j+j*s2^m*mu2^(j-1)/rAB
-        part_12_diff = (m_idx * mu1_p[:, i_idx] * mu2 ** j_idx * s1_p[:, n_idx] * s2 ** (m_idx - 1)
-                      + j_idx * mu1_p[:, i_idx] * mu2 ** (j_idx - 1) * s1_p[:, n_idx] * s2 ** m_idx) / rAB
-        part_21_diff = (m_idx * mu1_p[:, j_idx] * mu2 ** i_idx * s1_p[:, m_idx - 1] * s2 ** n_idx
-                      + j_idx * mu1_p[:, j_idx - 1] * mu2 ** i_idx * s1_p[:, m_idx] * s2 ** n_idx / rAB)
+        part_12_diff = (np.where(m_idx > 0, m_idx * mu1_p[:, i_idx] * mu2 ** j_idx * s1_p[:, n_idx] * s2 ** (m_idx - 1), 0.0)
+                      + np.where(j_idx > 0, j_idx * mu1_p[:, i_idx] * mu2 ** (j_idx - 1) * s1_p[:, n_idx] * s2 ** m_idx / rAB, 0.0))
+        part_21_diff = (np.where(n_idx > 0, n_idx * mu1_p[:, j_idx] * mu2 ** i_idx * s1_p[:, m_idx] * s2 ** (n_idx - 1), 0.0)
+                      + np.where(i_idx > 0, i_idx * mu1_p[:, j_idx] * mu2 ** (i_idx - 1) * s1_p[:, m_idx] * s2 ** n_idx / rAB, 0.0))
 
         F_ne_1 = B * (part_12_diff + part_21_diff)
         B = B * (part_12 + part_21)
