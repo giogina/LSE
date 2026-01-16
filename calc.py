@@ -1,5 +1,4 @@
 import numpy as np
-from numpy.ma.core import zeros_like
 
 
 def potential_ri(rAB, rA1, rB1, rA2, rB2, r12):
@@ -503,7 +502,9 @@ def calc_H_alphabeta_s12mu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, Minv, M1M, s1
     rA1_2 = rA1 * rA1
     rB1_2 = rB1 * rB1
     mu1_2 = mu1**2
+    # print(sorted(np.abs(mu1))[0:10])
     inv_mu1 = 1 / mu1
+    # print(inv_mu1)
     inv_mu1_2 = inv_mu1 * inv_mu1
     v1 = inv_rA1 + inv_rB1
     cos1AB = (rA1_2 + rAB_2 - rB1_2) * inv_rA1 * inv_rAB  * 0.5
@@ -651,8 +652,8 @@ def expand_idx(basis_idx, coords):
         a_idx = basis_idx[:, 6]
         b_idx = basis_idx[:, 7]
     else:
-        a_idx = zeros_like(h_idx)
-        b_idx = zeros_like(h_idx)
+        a_idx = np.zeros_like(h_idx)
+        b_idx = np.zeros_like(h_idx)
     return h_idx, k_idx, n_idx, m_idx, i_idx, j_idx, a_idx, b_idx
 
 def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X=None):
@@ -681,7 +682,7 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
         dy = y1[:, None] - y2[None, :]
         dz = 0.0 - z2[None, :]
         r12 = np.sqrt(dx * dx + dy * dy + dz * dz).ravel()  # vector of r12 values for all e1, e2 positions
-        r12 = np.maximum(r12, 10 ** (-8))
+        r12 = np.maximum(r12, 10 ** (-14))
         r12_p = power_table(r12, k_max)
 
         P1 = rA1.size
@@ -745,6 +746,9 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
             else: # just for plotting
                 part_12 = mu1_p[:, i_idx] * mu2_p[:, j_idx] * (s1[:, None] ** n_idx[None, :]) * s2 ** m_idx
                 part_21 = mu1_p[:, j_idx] * mu2_p[:, i_idx] * (s1[:, None] ** m_idx[None, :]) * s2 ** n_idx
+
+            sqrtW = np.sqrt((W) * (w1[:, None] * w2[None, :]).ravel())  # (P,)
+            B *= sqrtW[:, None]
 
             B_12 = B * part_12
             B_21 = B * part_21
@@ -810,7 +814,7 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
         return B, A_1, A_alpha, A_beta, A_alphabeta, A_alpha2, P
 
 
-def calc_F_ne(x1, y1, rAB, coords, basis_idx):
+def calc_F_ne(x1, y1, rAB, coords, basis_idx, X = None):
     rA1 = np.sqrt((x1 + rAB / 2) ** 2 + y1 ** 2)
     rB1 = np.sqrt((x1 - rAB / 2) ** 2 + y1 ** 2)  # vectorized distances
     s1 = rA1 + rB1
@@ -819,6 +823,8 @@ def calc_F_ne(x1, y1, rAB, coords, basis_idx):
     s2 = rAB
     mu2 = -1  #  = (rA2-rB2)/rAB -> rAB = rB2, rA2 = 0, e2 in A -> r12 = rA1
     r12 = rA1
+    rA2 = 0
+    rB2 = rAB
 
     matSize = basis_idx[:, 0].size
     h_idx, k_idx, n_idx, m_idx, i_idx, j_idx, a_idx, b_idx = expand_idx(basis_idx, coords)
@@ -833,8 +839,6 @@ def calc_F_ne(x1, y1, rAB, coords, basis_idx):
         r12_p = power_table(r12, k_max)
         s1_p = power_table(s1, n_max, n_min)
         mu1_p = power_table(mu1, i_max)
-        ni_factors_ne_1 = (n_idx + i_idx)/rAB
-        ni_factors_ne_alpha = -1
 
         B = np.broadcast_to(rAB ** h_idx, (P, matSize)).copy()
         B *= r12_p[:, k_idx]
@@ -843,9 +847,36 @@ def calc_F_ne(x1, y1, rAB, coords, basis_idx):
         part_12 = mu1_p[:, i_idx] * mu2 ** j_idx * s1_p[:, n_idx] * s2 ** m_idx
         part_21 = mu1_p[:, j_idx] * mu2 ** i_idx * s1_p[:, m_idx] * s2 ** n_idx
 
+        # m*s2^(m-1)*mu2^j+j*s2^m*mu2^(j-1)/rAB
+        part_12_diff = (m_idx * mu1_p[:, i_idx] * mu2 ** j_idx * s1_p[:, n_idx] * s2 ** (m_idx - 1)
+                      + j_idx * mu1_p[:, i_idx] * mu2 ** (j_idx - 1) * s1_p[:, n_idx] * s2 ** m_idx) / rAB
+        part_21_diff = (m_idx * mu1_p[:, j_idx] * mu2 ** i_idx * s1_p[:, m_idx - 1] * s2 ** n_idx
+                      + j_idx * mu1_p[:, j_idx - 1] * mu2 ** i_idx * s1_p[:, m_idx] * s2 ** n_idx / rAB)
+
+        F_ne_1 = B * (part_12_diff + part_21_diff)
         B = B * (part_12 + part_21)
-        F_ne_1 = B * ni_factors_ne_1
-        F_ne_alpha = B * ni_factors_ne_alpha
+        F_ne_alpha = -B
+
+    elif coords == "rij":
+        r12_p = power_table(r12, k_max)
+        rA1_p = power_table(rA1, n_max)
+        rB1_p = power_table(rB1, n_max)
+
+        B = np.broadcast_to(rAB ** h_idx, (P, matSize)).copy()
+        B *= r12_p[:, k_idx]
+
+        part_12 = np.where(m_idx == 0, rA1_p[:, n_idx] * rB1_p[:, i_idx] * rB2 ** j_idx, 0.0)  # probably this would miss 0^0=1; so hardcode m=0 case.
+        # part_21 = np.where(n_idx == 0, rA1_p[:, m_idx] * rB1_p[:, j_idx] * rB2 ** i_idx, 0.0)
+        part_12_diff_rA2 = np.where(m_idx == 1, m_idx * rA1_p[:, n_idx] * rB1_p[:, i_idx] * rB2 ** j_idx, 0.0)
+        # part_21_diff_rA2 = np.where(n_idx == 1, n_idx * rA1_p[:, m_idx] * rB1_p[:, j_idx] * rB2 ** i_idx, 0.0)
+
+        F_ne_1 = B * (part_12_diff_rA2)
+        B = B * (part_12)
+        F_ne_alpha = -B
+
+        B = B @ X
+        F_ne_1 = F_ne_1 @ X
+        F_ne_alpha = F_ne_alpha @ X
 
     else:
         print(f"Coordinate system {coords} not implemented for cusp functions")
@@ -853,32 +884,50 @@ def calc_F_ne(x1, y1, rAB, coords, basis_idx):
 
     return B, F_ne_1, F_ne_alpha  # (combine with chosen alpha value later)
 
-def calc_F_ee(x1, y1, rAB, coords, basis_idx, delta):
+def calc_F_ee(x1, y1, rAB, coords, basis_idx, delta, X = None):
 
     rA1 = np.sqrt((x1 + rAB/2) ** 2 + y1 ** 2)
     rB1 = np.sqrt((x1 - rAB/2) ** 2 + y1 ** 2)  # vectorized distances
     s1 = rA1 + rB1
     mu1 = (rA1 - rB1)/rAB
 
+    # rA2 = rA1
+    # rB2 = rB1
+    # r12 = 0.
+
     matSize = basis_idx[:, 0].size
     h_idx, k_idx, n_idx, m_idx, i_idx, j_idx, a_idx, b_idx = expand_idx(basis_idx, coords)
     ij_max = np.max(i_idx + j_idx)
     nm_min = np.min(n_idx+m_idx)
     nm_max = np.max(n_idx+m_idx)
+    ni_max = np.max(n_idx+i_idx)
 
     P = rA1.size
+
+    k_factors_ee = np.where(k_idx == 1, 1.0, np.where(k_idx == 0, -delta, 0.0))
+    k_factors_B = np.where(k_idx == 0, 1.0, 0.0)  # only non-vanishing parts of B at r12=0
 
     if coords == "s12mu":
         s1_p = power_table(s1, nm_max, nm_min)
         mu1_p = power_table(mu1, ij_max)
-        k_factors_ee = np.where(k_idx == 1, 1.0, np.where(k_idx == 0, -delta, 0.0))
-        k_factors_B = np.where(k_idx == 0, 1.0, 0.0)  # only non-vanishing parts of B at r12=0
 
         # Assemble basis functions from power matrices
         B = np.broadcast_to(rAB**h_idx, (P, matSize)).copy()
         B *= 2 * mu1_p[:, i_idx+j_idx] * s1_p[:, n_idx+m_idx]  # mu1^i*mu2^j*s1^n*s2^m+mu1^j*mu2^i*s1^m*s2^n, but mu1=mu2 and s1=s2
         F_ee = B * k_factors_ee[None, :] # compute diff(B, r12) at r12=0
         B *= k_factors_B  # set r12 = 0 in B
+    elif coords == "rij":
+        rA1_p = power_table(rA1, ni_max)
+        rB1_p = power_table(rB1, ni_max)
+
+        B = np.broadcast_to(rAB ** h_idx, (P, matSize)).copy()
+        B *= rA1_p[:, n_idx+i_idx] * rB1_p[:, m_idx+j_idx]  # no factor 2 because rij is not pre-symmetrized
+        F_ee = B * k_factors_ee[None, :] # compute diff(B, r12) at r12=0
+        B *= k_factors_B  # set r12 = 0 in B
+
+        B = B @ X
+        F_ee = F_ee @ X
+
     else:
         print(f"Coordinate system {coords} not implemented for cusp functions")
         return None, None

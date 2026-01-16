@@ -14,11 +14,11 @@ h_max = 5
 k_max = 8
 n_max = 8
 m_max = 8 # stmu only
-nm_min = -0
 ij_max = 8 # stmu only
 ab_max = 0 # rij only
 total_max = 6
-delta = 0.1
+nm_min = -0
+delta = 0
 
 # delta = 0.1: E[0] := -1.174474883468479:
 # E[0] := -1.1744788198234721 at delta=0.1, alpha=0.695
@@ -26,12 +26,13 @@ delta = 0.1
 plot_rAB_target = 1.4
 
 nMu = 24
-nS = 40
+nS = 30
 sMax = 50
 
-# coords = "rij"
+coords = "rij"
 # coords = "stmu"
-coords = "s12mu"
+# coords = "s12mu" # todo: wtf, r12 cusp plot is 0.5 just in the middle? (Pre-factor (1+(1/2+delta)*r12) might fix it?)
+# todo: check that offset mu sampling doesn't mess with proper weighing
 
 if BO:
     M1M = 1
@@ -74,13 +75,8 @@ if coords == "rij":
                                     # constraints
                                     t = h + k + n + m + i + j
                                     if t > total_max: continue
-                                    if a>1 and abs(n-i)>1: continue # prevent repeating basis functions by cancellation of rA, rB terms
-                                    if b>1 and abs(m-j)>1: continue
-                                    if a>n+i: continue
-                                    if b>m+j: continue
-
-                                    # a += np.floor(k/2)
-                                    # b += np.floor(k/2)
+                                    if a>0 and abs(n-i)>1: continue # prevent repeating basis functions by cancellation of rA, rB terms
+                                    if b>0 and abs(m-j)>1: continue
 
                                     indexTuples = [(h, k, n, m, i, j, a, b), (h, k, i, j, n, m, a, b), (h, k, m, n, j, i, b, a), (h, k, j, i, m, n, b, a)]
                                     indexTuples = tuple(sorted(set(indexTuples)))

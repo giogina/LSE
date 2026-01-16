@@ -208,9 +208,14 @@ def plot_mu2_with_alpha_beta(
         C = np.real(C[:, idx])
         print(E[0])
 
-        scale = C[0, :]
-        scale[scale == 0.0] = 1.0
-        C /= scale
+        for j in range(C.shape[1]):
+            cj = C[:, j]
+            k = np.argmax(np.abs(cj))
+            if cj[k] < 0:
+                cj *= -1
+            nrm2 = float(cj @ (S @ cj))
+            if nrm2 > 0:
+                C[:, j] = cj / np.sqrt(nrm2)
 
         if only_negative_E:
             sol_idx = np.where(E < 0)[0]
@@ -263,8 +268,8 @@ def plot_mu2_with_alpha_beta(
             coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X
         )
 
-        Bee, Fee = calc_F_ee(x1_flat, y1_flat, rAB, coords, basis_idx, delta)
-        Bne, Fne_1, Fne_alpha = calc_F_ne(x1_flat, y1_flat, rAB, coords, basis_idx)
+        Bee, Fee = calc_F_ee(x1_flat, y1_flat, rAB, coords, basis_idx, delta, X)
+        Bne, Fne_1, Fne_alpha = calc_F_ne(x1_flat, y1_flat, rAB, coords, basis_idx, X)
 
         if B.shape[0] != P1:
             raise ValueError(
