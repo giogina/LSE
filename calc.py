@@ -682,7 +682,7 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
         dy = y1[:, None] - y2[None, :]
         dz = 0.0 - z2[None, :]
         r12 = np.sqrt(dx * dx + dy * dy + dz * dz).ravel()  # vector of r12 values for all e1, e2 positions
-        r12 = np.maximum(r12, 10 ** (-14))
+        # r12 = np.maximum(r12, 10 ** (-14))
         r12_p = power_table(r12, k_max)
 
         P1 = rA1.size

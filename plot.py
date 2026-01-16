@@ -58,7 +58,7 @@ def plot_mu2_with_alpha_beta(
     # numerics / plot options
     only_negative_E=True,
     eps=1e-16,
-    zlim_eloc=(-3.0, 0.0),
+    zlim_eloc=None,
 
     # color clarity: use discrete colormap levels
     psi_levels=128,
@@ -165,27 +165,75 @@ def plot_mu2_with_alpha_beta(
             shade=False,
         )
 
-    def assemble_HS(alpha, beta):
+    def rel_asym(A):
+        nrm = np.linalg.norm(A)
+        if nrm == 0.0:
+            return 0.0
+        return np.linalg.norm(A - A.T) / nrm
+
+    def assemble_HS(alpha, beta, debug_asym=True):
         S = np.zeros((matSize, matSize), dtype=np.float64)
         H = np.zeros((matSize, matSize), dtype=np.float64)
 
+        # ---- Overlap ----
         for (rAB0, s0), Sl in S_layers.items():
             S += Sl * np.exp(-2 * alpha * s0 - 2 * beta * rAB0)
 
-        for (rAB0, s0), Hl in H_1_layers.items():
-            H += Hl * np.exp(-2 * alpha * s0 - 2 * beta * rAB0)
-        for (rAB0, s0), Hl in H_alpha_layers.items():
-            H += Hl * alpha * np.exp(-2 * alpha * s0 - 2 * beta * rAB0)
-        for (rAB0, s0), Hl in H_alpha_2_layers.items():
-            H += Hl * (alpha ** 2) * np.exp(-2 * alpha * s0 - 2 * beta * rAB0)
-        for (rAB0, s0), Hl in H_alpha_beta_layers.items():
-            H += Hl * (alpha * beta) * np.exp(-2 * alpha * s0 - 2 * beta * rAB0)
-        for (rAB0, s0), Hl in H_beta_layers.items():
-            H += Hl * beta * np.exp(-2 * alpha * s0 - 2 * beta * rAB0)
-        for (rAB0, s0), Hl in H_beta_2_layers.items():
-            H += Hl * (beta ** 2) * np.exp(-2 * alpha * s0 - 2 * beta * rAB0)
+        if debug_asym:
+            print("S asym rel:", rel_asym(S))
 
-        # H, S = diag_rescale_generalized(H, S)
+        # ---- Hamiltonian blocks ----
+        def add_block(label, layers, prefactor_fn):
+            nonlocal H
+            Hblk = np.zeros_like(H)
+
+            for (rAB0, s0), Hl in layers.items():
+                Hblk += Hl * prefactor_fn(alpha, beta, rAB0, s0)
+
+            if debug_asym:
+                print(f"{label:16s} asym rel:", rel_asym(Hblk))
+
+            H += Hblk
+
+        add_block(
+            "H_1",
+            H_1_layers,
+            lambda a, b, rAB0, s0: np.exp(-2 * a * s0 - 2 * b * rAB0),
+        )
+
+        add_block(
+            "H_alpha",
+            H_alpha_layers,
+            lambda a, b, rAB0, s0: a * np.exp(-2 * a * s0 - 2 * b * rAB0),
+        )
+
+        add_block(
+            "H_alpha2",
+            H_alpha_2_layers,
+            lambda a, b, rAB0, s0: (a ** 2) * np.exp(-2 * a * s0 - 2 * b * rAB0),
+        )
+
+        add_block(
+            "H_alpha_beta",
+            H_alpha_beta_layers,
+            lambda a, b, rAB0, s0: (a * b) * np.exp(-2 * a * s0 - 2 * b * rAB0),
+        )
+
+        add_block(
+            "H_beta",
+            H_beta_layers,
+            lambda a, b, rAB0, s0: b * np.exp(-2 * a * s0 - 2 * b * rAB0),
+        )
+
+        add_block(
+            "H_beta2",
+            H_beta_2_layers,
+            lambda a, b, rAB0, s0: (b ** 2) * np.exp(-2 * a * s0 - 2 * b * rAB0),
+        )
+
+        if debug_asym:
+            print("H TOTAL asym rel:", rel_asym(H))
+
         return H, S
 
     def get_cached_eigs(ia, ib):
@@ -320,6 +368,9 @@ def plot_mu2_with_alpha_beta(
     ax_cusp = fig.add_subplot(1, 3, 3, projection="3d")
     fig.subplots_adjust(bottom=0.34)
 
+    ax_eloc.view_init(elev=0, azim=45)
+    ax_cusp.view_init(elev=0, azim=45)
+
     # long sliders
     ax_alpha = fig.add_axes([0.15, 0.26, 0.7, 0.035])
     ax_beta  = fig.add_axes([0.15, 0.21, 0.7, 0.035])
@@ -418,7 +469,7 @@ def plot_mu2_with_alpha_beta(
             Bee_c = Bee @ c
             Fee_c = Fee @ c
             denom_cusp = np.where(np.abs(Bee_c) < eps, np.nan, Bee_c)
-            cusp_ee = Fee_c / denom_cusp
+            cusp_ee = Fee_c / denom_cusp - 0.5
             cusp_ee_grid = cusp_ee.reshape(Y1.shape)
             Bne = geom["Bne"]
             Fne_1 = geom["Fne_1"]
@@ -427,7 +478,7 @@ def plot_mu2_with_alpha_beta(
             Bne_c = Bne @ c
             Fne_c = Fne @ c
             denom_cusp = np.where(np.abs(Bne_c) < eps, np.nan, Bne_c)
-            cusp_ne = Fne_c / denom_cusp
+            cusp_ne = Fne_c / denom_cusp + 1.0
             cusp_ne_grid = cusp_ne.reshape(Y1.shape)
             ax_cusp.clear()
 
@@ -447,7 +498,7 @@ def plot_mu2_with_alpha_beta(
                 alpha=0.55
             )
 
-            ax_cusp.set_zlim(-2.0, 2.0)
+            # ax_cusp.set_zlim(-2.0, 2.0)
 
         ax_phi.clear()
         ax_eloc.clear()

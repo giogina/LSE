@@ -162,3 +162,68 @@ def sample_s_shell(rAB, s, nMu=12, Nphi=16, octant=False):
 #         C = C, E = E,
 #         alpha=alpha, beta=beta, zlim_eloc=(-3, 0)
 #     )
+
+import numpy as np
+
+# --- analytic references for shell integrals ---
+def I0_exact(mu):     # I[1]
+    return 4.0 * np.pi * (mu*mu - 1.0/3.0)
+
+def Inu2_exact(mu):   # I[nu^2]
+    return 4.0 * np.pi * (mu*mu/3.0 - 1.0/5.0)
+
+def Inu4_exact(mu):   # I[nu^4]
+    return 4.0 * np.pi * (mu*mu/5.0 - 1.0/7.0)
+
+# --- build (nu,phi) grid + weights exactly like your sampling does ---
+
+
+def test_shell_quadrature(mu, Nnu=16, Nphi=16, octant=False):
+    _, _, _, nu, phi, w = sample_s_shell(1.4, mu * 1.4, nMu=Nnu, Nphi=Nphi, octant = octant)
+
+    def report(name, approx, exact):
+        rel = abs(approx - exact) / max(1e-300, abs(exact))
+        print(f"{name:12s} approx={approx: .16e}  exact={exact: .16e}  relerr={rel:.3e}")
+
+    I0   = np.sum(w)
+    Inu2 = np.sum(w * nu**2)
+    Inu4 = np.sum(w * nu**4)
+    Icos = np.sum(w * np.cos(phi))
+    Isin = np.sum(w * np.sin(phi))
+    Icos2 = np.sum(w * (np.cos(phi)**2))
+
+    print(f"\n--- shell test mu={mu:.6g}  Nnu={Nnu} Nphi={Nphi} octant={octant} ---")
+    report("I[1]",      I0,    I0_exact(mu))
+    report("I[nu^2]",   Inu2,  Inu2_exact(mu))
+    report("I[nu^4]",   Inu4,  Inu4_exact(mu))
+    report("I[cos φ]",  Icos,  0.0)
+    report("I[sin φ]",  Isin,  0.0)
+    report("I[cos^2]",  Icos2, 0.5 * I0_exact(mu))
+
+def test_split_s(s, rAB, Ku=32):
+    s1, s2, w = split_s(s, rAB, Ku)
+    print(f"\n--- split_s test s={s:.6g} rAB={rAB:.6g} Ku={Ku} ---")
+
+    I1 = np.sum(w * 1.0)
+    I_s1 = np.sum(w * s1)
+    I_diff = np.sum(w * (s1 - s2))
+
+    exact_I1 = (s - 2.0*rAB)
+    exact_I_s1 = 0.5 * ((s - rAB)**2 - (rAB)**2)  # ∫ s1 ds1
+    exact_I_diff = 0.0
+
+    def report(name, approx, exact):
+        rel = abs(approx - exact) / max(1e-300, abs(exact))
+        print(f"{name:12s} approx={approx: .16e}  exact={exact: .16e}  relerr={rel:.3e}")
+
+    report("∫1",        I1,      exact_I1)
+    report("∫s1",       I_s1,    exact_I_s1)
+    report("∫(s1-s2)",  I_diff,  exact_I_diff)
+
+
+# pick any mu > 1 (since mu=s/R and s>=R)
+# test_shell_quadrature(mu=2.0, Nnu=16, Nphi=16, octant=False)
+# test_shell_quadrature(mu=2.0, Nnu=16, Nphi=16, octant=True)
+#
+# test_split_s(s=6.0, rAB=1.4, Ku=32)
+

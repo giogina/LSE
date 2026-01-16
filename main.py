@@ -11,13 +11,13 @@ M = 1836.153
 
 # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
 h_max = 5
-k_max = 8
+k_max = 0
 n_max = 8
 m_max = 8 # stmu only
 ij_max = 8 # stmu only
 ab_max = 0 # rij only
-total_max = 6
-nm_min = -0
+total_max = 3
+nm_min = -0 # TODO: why doesn't that improve things?
 delta = 0
 
 # delta = 0.1: E[0] := -1.174474883468479:
@@ -25,13 +25,14 @@ delta = 0
 
 plot_rAB_target = 1.4
 
-nMu = 24  # todo: test effect of these values on solution quality
+nMu = 12  # todo: test effect of these values on solution quality
 nS = 30
 sMax = 50
 
 # coords = "rij"
 # coords = "stmu"
-coords = "s12mu" # todo: wtf, r12 cusp plot is 0.5 just in the middle? (Pre-factor (1+(1/2+delta)*r12) might fix it?)
+coords = "s12mu" # todo: H slightly non-hermitian? How to fix that?
+# TODO: check worst_pair function - for some monomials, H.T@H - H remains large. Why those? Is it an error?
 
 if BO:
     M1M = 1
@@ -122,6 +123,9 @@ elif coords == "stmu" or coords == "s12mu":
 
 basis_idx = np.array(rows, dtype=np.int16)
 
+print(basis_idx[0, :])
+print(basis_idx[10, :])
+
 matSize = basis_idx[:, 0].size
 bSize = len(sym_b) if coords == "rij" else matSize
 print(f"MatSize = {bSize}, Coords: {coords}")
@@ -171,6 +175,18 @@ for rAB in abRange:
             x2, y2, z2, mu2, _, w2 = sample_s_shell(rAB, s2, octant=True, nMu=nMu)
 
             B, A_1, A_alpha, A_beta, A_alphabeta, A_alpha2, P = calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, sW[ks] * splitW[j], coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X)
+
+            def worst_pair(B, A, str):
+                BW = B
+                H = BW.T @ A  # This is the assembled block (for diagnosis only)
+                As = H - H.T
+                i, j = np.unravel_index(np.argmax(np.abs(As)), As.shape)
+                if np.abs(As[i, j] / (H[i, j] + H[j, i] + np.abs(As[i, j]))) > 1e-3:
+                    print(str, i, j, H[i, j], H[j, i], As[i, j], np.linalg.norm(As) / max(1e-300, np.linalg.norm(H)))
+            print(s, j, s1, s2)
+            (worst_pair(B, A_1, "A1"))
+            (worst_pair(B, A_alpha, "Aalpha"))
+            (worst_pair(B, A_beta, "Abeta"))
 
             B = np.asfortranarray(B)
             BT = np.asfortranarray(B.T)
@@ -250,5 +266,5 @@ plot_mu2_with_alpha_beta(
     # numerics / plot behavior
     only_negative_E=True,
     eps=1e-14,
-    # zlim_eloc=(-3.0, 0.0)
+    zlim_eloc=(-1.5, -0.9)
 )
