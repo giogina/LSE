@@ -11,21 +11,23 @@ M = 1836.153
 
 # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
 h_max = 5
-k_max = 0
+k_max = 8
 n_max = 8
 m_max = 8 # stmu only
 ij_max = 8 # stmu only
 ab_max = 0 # rij only
-total_max = 3
+total_max = 5
 nm_min = -0 # TODO: why doesn't that improve things?
 delta = 0
+
+# todo: alpha = 0.8 actually better, again? (at least at total_max = 5)
 
 # delta = 0.1: E[0] := -1.174474883468479:
 # E[0] := -1.1744788198234721 at delta=0.1, alpha=0.695
 
 plot_rAB_target = 1.4
 
-nMu = 12  # todo: test effect of these values on solution quality
+nMu = 32  # todo: test effect of these values on solution quality
 nS = 30
 sMax = 50
 
@@ -33,7 +35,8 @@ sMax = 50
 # coords = "stmu"
 coords = "s12mu" # todo: H slightly non-hermitian? How to fix that?
 # TODO: check worst_pair function - for some monomials, H.T@H - H remains large. Why those? Is it an error?
-
+# TODO: octant = False gives almost exactly the same plots, but slightly less-negative energy, and less asym.
+# todo: at high s, the H entries become MASSIVE (lack of exp). Numerical problem?
 if BO:
     M1M = 1
     M_inv = 0
@@ -123,9 +126,6 @@ elif coords == "stmu" or coords == "s12mu":
 
 basis_idx = np.array(rows, dtype=np.int16)
 
-print(basis_idx[0, :])
-print(basis_idx[10, :])
-
 matSize = basis_idx[:, 0].size
 bSize = len(sym_b) if coords == "rij" else matSize
 print(f"MatSize = {bSize}, Coords: {coords}")
@@ -173,6 +173,7 @@ for rAB in abRange:
 
             # sample electron 2 on its s2-shell
             x2, y2, z2, mu2, _, w2 = sample_s_shell(rAB, s2, octant=True, nMu=nMu)
+            # x2, y2, z2, mu2, _, w2 = sample_s_shell(rAB, s2, nMu=4*nMu)
 
             B, A_1, A_alpha, A_beta, A_alphabeta, A_alpha2, P = calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, sW[ks] * splitW[j], coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X)
 
@@ -181,12 +182,12 @@ for rAB in abRange:
                 H = BW.T @ A  # This is the assembled block (for diagnosis only)
                 As = H - H.T
                 i, j = np.unravel_index(np.argmax(np.abs(As)), As.shape)
-                if np.abs(As[i, j] / (H[i, j] + H[j, i] + np.abs(As[i, j]))) > 1e-3:
-                    print(str, i, j, H[i, j], H[j, i], As[i, j], np.linalg.norm(As) / max(1e-300, np.linalg.norm(H)))
+                # if np.abs(As[i, j] / (H[i, j] + H[j, i] + np.abs(As[i, j]))) > 1e-8:
+                print(str, i, j, basis_idx[i], basis_idx[j], H[i, j], H[j, i], As[i, j], np.linalg.norm(As) / max(1e-300, np.linalg.norm(H)))
             print(s, j, s1, s2)
             (worst_pair(B, A_1, "A1"))
             (worst_pair(B, A_alpha, "Aalpha"))
-            (worst_pair(B, A_beta, "Abeta"))
+            # (worst_pair(B, A_beta, "Abeta"))
 
             B = np.asfortranarray(B)
             BT = np.asfortranarray(B.T)

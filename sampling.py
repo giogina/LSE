@@ -51,7 +51,7 @@ def shell_area_weight(s1, s2, rAB):
     shell_area_2 = 4*np.pi*((s2 / rAB)**2 - 1/3)
     return shell_area_1 * shell_area_2
 
-def sample_s_shell(rAB, s, nMu=12, Nphi=16, octant=False):
+def sample_s_shell_old(rAB, s, nMu=12, Nphi=16, octant=False):
     """
     Deterministic quadrature on the prolate spheroidal shell rA+rB = s.
     Returns (x,y,z, w) arrays of length nMu*Nphi.
@@ -87,6 +87,42 @@ def sample_s_shell(rAB, s, nMu=12, Nphi=16, octant=False):
     z = rho * np.sin(phi_grid) if Nphi > 2 else np.zeros_like(x)
 
     return x, y, z, nu_grid, phi_grid, w
+
+
+def sample_s_shell(rAB, s, nMu=12, Nphi=16, p_phi=3.0):
+    """
+    Like sample_s_shell(..., octant=True) but with phi clustered near 0
+    using phi = (pi/2) * u^p, u uniform in [0,1).
+    Weights include dphi/du Jacobian and the usual (mu^2-nu^2).
+    """
+    mu = s / rAB
+
+    # nu in [0,1] for octant, with mirrored weight factor handled outside (same as your code)
+    nu0, w0 = leggauss(nMu)
+    a, b = 0.0, 1.0
+    nu = 0.5*(b-a)*nu0 + 0.5*(a+b)
+    wnu = 0.5*(b-a)*w0 * 2.0  # keep your "undo half" logic for octant
+
+    # biased phi on [0, pi/2)
+    u = (np.arange(Nphi) + 0.5) / Nphi          # midpoint rule in u
+    phi = (0.5*np.pi) * (u ** p_phi)
+    # dphi = (pi/2) * p * u^(p-1) du, du = 1/Nphi
+    wphi = (0.5*np.pi) * p_phi * (u ** (p_phi - 1.0)) * (1.0 / Nphi)
+    wphi = wphi * 4.0  # your octant mirroring factor
+
+    nu_grid = np.repeat(nu, Nphi)
+    phi_grid = np.tile(phi, nMu)
+
+    jac = (mu*mu - nu_grid*nu_grid)
+    w = np.repeat(wnu, Nphi) * np.tile(wphi, nMu) * jac
+
+    x = 0.5 * rAB * mu * nu_grid
+    rho = 0.5 * rAB * np.sqrt((mu*mu - 1.0) * (1.0 - nu_grid*nu_grid))
+    y = rho * np.cos(phi_grid)
+    z = rho * np.sin(phi_grid)
+
+    return x,y,z,nu_grid,phi_grid,w
+
 
 
 
@@ -164,66 +200,206 @@ def sample_s_shell(rAB, s, nMu=12, Nphi=16, octant=False):
 #     )
 
 import numpy as np
+from math import factorial
 
-# --- analytic references for shell integrals ---
-def I0_exact(mu):     # I[1]
-    return 4.0 * np.pi * (mu*mu - 1.0/3.0)
+def _mu_int(n: int, p: float) -> float:
+    # ∫_1^∞ μ^n e^{-pμ} dμ = e^{-p} Σ_{j=0..n} n!/(n-j)! * 1/p^{j+1}
+    nfac = factorial(n)
+    s = 0.0
+    for j in range(n + 1):
+        s += nfac / factorial(n - j) / (p ** (j + 1))
+    return np.exp(-p) * s
 
-def Inu2_exact(mu):   # I[nu^2]
-    return 4.0 * np.pi * (mu*mu/3.0 - 1.0/5.0)
+def I3_exp(rAB: float, k: float) -> float:
+    a = 0.5 * rAB
+    p = k * rAB
+    I2 = _mu_int(2, p)
+    I0 = _mu_int(0, p)
+    return 2*np.pi * a**3 * (2*I2 - (2/3)*I0)
 
-def Inu4_exact(mu):   # I[nu^4]
-    return 4.0 * np.pi * (mu*mu/5.0 - 1.0/7.0)
+def I3_s_exp(rAB: float, k: float) -> float:
+    # ∫ s e^{-k s} dV = - d/dk I3
+    # Since p=k rAB, d/dk = rAB d/dp
+    a = 0.5 * rAB
+    p = k * rAB
 
-# --- build (nu,phi) grid + weights exactly like your sampling does ---
+    # d/dp ∫ μ^n e^{-pμ} dμ = - ∫ μ^{n+1} e^{-pμ} dμ
+    dI2_dp = -_mu_int(3, p)
+    dI0_dp = -_mu_int(1, p)
 
+    dI3_dp = 2*np.pi * a**3 * (2*dI2_dp - (2/3)*dI0_dp)
+    return -(rAB * dI3_dp)
+import numpy as np
 
-def test_shell_quadrature(mu, Nnu=16, Nphi=16, octant=False):
-    _, _, _, nu, phi, w = sample_s_shell(1.4, mu * 1.4, nMu=Nnu, Nphi=Nphi, octant = octant)
+def integrate_6d_via_split(rAB, s_max, Ks=48, Ku=32, Nnu=32, Nphi=64, f=None, gamma=2.0):
+    """
+    Numerically approximates ∫ f(...) d^3r1 d^3r2 over the domain s1>=R, s2>=R
+    using your:
+      build_s_shells(rAB, Ks, s_max, gamma)
+      split_s(s, rAB, Ku)
+      sample_s_shell(rAB, s1), sample_s_shell(rAB, s2)
+    """
+    s_grid, ws = build_s_shells(rAB, Ks, s_max, gamma=gamma)  # :contentReference[oaicite:5]{index=5}
+    a = 0.5 * rAB
+    pref = (a**3 / rAB)**2   # (a^3 dμ)^2 with dμ=ds/rAB  => overall rAB factors handled here
 
-    def report(name, approx, exact):
-        rel = abs(approx - exact) / max(1e-300, abs(exact))
-        print(f"{name:12s} approx={approx: .16e}  exact={exact: .16e}  relerr={rel:.3e}")
+    total = 0.0
+    for s, w_s in zip(s_grid, ws):
+        s1, s2, w_split = split_s(s, rAB, Ku)  # :contentReference[oaicite:6]{index=6}
+        for si, sj, w_ij in zip(s1, s2, w_split):
+            x1,y1,z1,nu1,phi1,wsh1 = sample_s_shell(rAB, si, nMu=Nnu, Nphi=Nphi, octant=False)  # :contentReference[oaicite:7]{index=7}
+            x2,y2,z2,nu2,phi2,wsh2 = sample_s_shell(rAB, sj, nMu=Nnu, Nphi=Nphi, octant=False)  # :contentReference[oaicite:8]{index=8}
 
-    I0   = np.sum(w)
-    Inu2 = np.sum(w * nu**2)
-    Inu4 = np.sum(w * nu**4)
-    Icos = np.sum(w * np.cos(phi))
-    Isin = np.sum(w * np.sin(phi))
-    Icos2 = np.sum(w * (np.cos(phi)**2))
+            # evaluate on tensor product of shell grids
+            if f is None:
+                vals = 1.0
+                block = np.sum(wsh1) * np.sum(wsh2)
+            else:
+                # build r12 if needed
+                dx = x1[:,None]-x2[None,:]
+                dy = y1[:,None]-y2[None,:]
+                dz = z1[:,None]-z2[None,:]
+                r12 = np.sqrt(dx*dx+dy*dy+dz*dz)
 
-    print(f"\n--- shell test mu={mu:.6g}  Nnu={Nnu} Nphi={Nphi} octant={octant} ---")
-    report("I[1]",      I0,    I0_exact(mu))
-    report("I[nu^2]",   Inu2,  Inu2_exact(mu))
-    report("I[nu^4]",   Inu4,  Inu4_exact(mu))
-    report("I[cos φ]",  Icos,  0.0)
-    report("I[sin φ]",  Isin,  0.0)
-    report("I[cos^2]",  Icos2, 0.5 * I0_exact(mu))
+                vals = f(si, sj, s, x1,y1,z1, x2,y2,z2, r12)
+                block = np.sum((wsh1[:,None]*wsh2[None,:]) * vals)
 
-def test_split_s(s, rAB, Ku=32):
-    s1, s2, w = split_s(s, rAB, Ku)
-    print(f"\n--- split_s test s={s:.6g} rAB={rAB:.6g} Ku={Ku} ---")
+            total += w_s * w_ij * block
 
-    I1 = np.sum(w * 1.0)
-    I_s1 = np.sum(w * s1)
-    I_diff = np.sum(w * (s1 - s2))
+    return pref * total
+def test_split_swap_zero(rAB=1.4, s_max=60.0, k=0.8):
+    num = integrate_6d_via_split(
+        rAB, s_max,
+        f=lambda s1,s2,st, *args: (s1 - s2) * np.exp(-k*st)
+    )
+    print("swap-antisym (should be 0):", num)
+def test_split_s1_moment(rAB=1.4, s_max=60.0, k=0.8):
+    num_s1 = integrate_6d_via_split(
+        rAB, s_max,
+        f=lambda s1,s2,st, *args: (s1) * np.exp(-k*st)
+    )
+    num_s2 = integrate_6d_via_split(
+        rAB, s_max,
+        f=lambda s1,s2,st, *args: (s2) * np.exp(-k*st)
+    )
 
-    exact_I1 = (s - 2.0*rAB)
-    exact_I_s1 = 0.5 * ((s - rAB)**2 - (rAB)**2)  # ∫ s1 ds1
-    exact_I_diff = 0.0
+    # exact over infinite range (your finite s_max should be large enough with exp decay)
+    ex = I3_exp(rAB,k) * I3_s_exp(rAB,k)
 
-    def report(name, approx, exact):
-        rel = abs(approx - exact) / max(1e-300, abs(exact))
-        print(f"{name:12s} approx={approx: .16e}  exact={exact: .16e}  relerr={rel:.3e}")
+    print("∫ s1 e^{-k(s1+s2)}:", num_s1)
+    print("∫ s2 e^{-k(s1+s2)}:", num_s2)
+    print("exact:", ex)
+    print("relerr s1:", abs(num_s1-ex)/abs(ex))
+    print("relerr s2:", abs(num_s2-ex)/abs(ex))
+    print("swap diff (should be 0):", num_s1-num_s2)
+def integrate_3d_generic(rAB, k, Kmu=80, Nnu=24, Nphi=48, g=None):
+    t, wt = np.polynomial.laguerre.laggauss(Kmu)
+    p = k * rAB
+    mu = 1.0 + t / p
+    a = 0.5 * rAB
+    pref = (np.exp(-p)/p) * a**3
 
-    report("∫1",        I1,      exact_I1)
-    report("∫s1",       I_s1,    exact_I_s1)
-    report("∫(s1-s2)",  I_diff,  exact_I_diff)
+    total = 0.0
+    for mui, wti in zip(mu, wt):
+        s = mui * rAB
+        x,y,z,nu,phi,wsh = sample_s_shell(rAB, s, nMu=Nnu, Nphi=Nphi, octant=False)  # :contentReference[oaicite:10]{index=10}
+        vals = g(x,y,z,mui,nu,phi,s)
+        total += wti * np.sum(wsh * vals)
+    return pref * total
 
+def test_parity(rAB=1.4, k=0.8):
+    Ix = integrate_3d_generic(rAB,k, g=lambda x,y,z,mu,nu,phi,s: x*np.exp(-k*s))
+    Iy = integrate_3d_generic(rAB,k, g=lambda x,y,z,mu,nu,phi,s: y*np.exp(-k*s))
+    print("∫ x e^{-ks} dV (should be 0):", Ix)
+    print("∫ y e^{-ks} dV (should be 0):", Iy)
+def integrate_6d_gaussian_r12(rAB, alpha, beta, Kmu=22, Nnu=12, Nphi=24, p_map=1.2):
+    """
+    Generic μ quadrature: μ = 1 + t/p_map, t∈[0,∞).
+    Uses Laguerre weights w (for ∫ e^{-t} g(t) dt), so to integrate ∫ f(t) dt we use g(t)=e^{t} f(t).
+    """
+    t, w = np.polynomial.laguerre.laggauss(Kmu)
+    mu = 1.0 + t / p_map
+    dmu = 1.0 / p_map
 
-# pick any mu > 1 (since mu=s/R and s>=R)
-# test_shell_quadrature(mu=2.0, Nnu=16, Nphi=16, octant=False)
-# test_shell_quadrature(mu=2.0, Nnu=16, Nphi=16, octant=True)
-#
-# test_split_s(s=6.0, rAB=1.4, Ku=32)
+    a = 0.5 * rAB
+    pref = (a**3 * dmu)**2
 
+    total = 0.0
+    for i, mui in enumerate(mu):
+        s1 = mui * rAB
+        x1,y1,z1,nu1,phi1,w1 = sample_s_shell(rAB, s1, nMu=Nnu, Nphi=Nphi, octant=False)  # :contentReference[oaicite:11]{index=11}
+        r1_2 = x1*x1 + y1*y1 + z1*z1
+
+        for j, muj in enumerate(mu):
+            s2 = muj * rAB
+            x2,y2,z2,nu2,phi2,w2 = sample_s_shell(rAB, s2, nMu=Nnu, Nphi=Nphi, octant=False)  # :contentReference[oaicite:12]{index=12}
+            r2_2 = x2*x2 + y2*y2 + z2*z2
+
+            dx = x1[:,None]-x2[None,:]
+            dy = y1[:,None]-y2[None,:]
+            dz = z1[:,None]-z2[None,:]
+            r12_2 = dx*dx+dy*dy+dz*dz
+
+            integrand = np.exp(-alpha*(r1_2[:,None] + r2_2[None,:]) - beta*r12_2)
+            block = np.sum((w1[:,None]*w2[None,:]) * integrand)
+
+            # convert Laguerre to plain dt integral: multiply by exp(t_i+t_j)
+            total += (w[i]*np.exp(t[i])) * (w[j]*np.exp(t[j])) * block
+
+    return pref * total
+
+def exact_6d_gaussian(alpha, beta):
+    return (np.pi**3) / ((alpha*(alpha+2.0*beta))**1.5)
+
+def test_r12_gaussian(rAB=1.4, alpha=0.7, beta=0.4):
+    num = integrate_6d_gaussian_r12(rAB, alpha, beta)
+    ex  = exact_6d_gaussian(alpha, beta)
+    print("6D Gaussian(r12) num:", num)
+    print("6D Gaussian(r12) exact:", ex)
+    print("relerr:", abs(num-ex)/abs(ex))
+def exact_6d_gaussian_r12sq(alpha, beta):
+    I = exact_6d_gaussian(alpha, beta)
+    return (3.0/(alpha+2.0*beta)) * I
+
+def test_r12_moment(rAB=1.4, alpha=0.7, beta=0.4):
+    def integrate_r12sq():
+        t, w = np.polynomial.laguerre.laggauss(22)
+        p_map=1.2
+        mu = 1.0 + t / p_map
+        dmu = 1.0 / p_map
+        a = 0.5*rAB
+        pref = (a**3*dmu)**2
+
+        total = 0.0
+        for i, mui in enumerate(mu):
+            s1 = mui*rAB
+            x1,y1,z1,nu1,phi1,w1 = sample_s_shell(rAB, s1, nMu=12, Nphi=24, octant=False)  # :contentReference[oaicite:13]{index=13}
+            r1_2 = x1*x1 + y1*y1 + z1*z1
+            for j, muj in enumerate(mu):
+                s2 = muj*rAB
+                x2,y2,z2,nu2,phi2,w2 = sample_s_shell(rAB, s2, nMu=12, Nphi=24, octant=False)  # :contentReference[oaicite:14]{index=14}
+                r2_2 = x2*x2 + y2*y2 + z2*z2
+
+                dx = x1[:,None]-x2[None,:]
+                dy = y1[:,None]-y2[None,:]
+                dz = z1[:,None]-z2[None,:]
+                r12_2 = dx*dx+dy*dy+dz*dz
+
+                base = np.exp(-alpha*(r1_2[:,None]+r2_2[None,:]) - beta*r12_2)
+                block = np.sum((w1[:,None]*w2[None,:]) * (r12_2 * base))
+
+                total += (w[i]*np.exp(t[i]))*(w[j]*np.exp(t[j])) * block
+
+        return pref * total
+
+    num = integrate_r12sq()
+    ex  = exact_6d_gaussian_r12sq(alpha, beta)
+    print("6D r12^2 moment num:", num)
+    print("6D r12^2 moment exact:", ex)
+    print("relerr:", abs(num-ex)/abs(ex))
+
+test_parity()
+test_r12_gaussian()
+test_r12_moment()
+test_split_swap_zero()
+test_split_s1_moment()

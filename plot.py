@@ -188,6 +188,8 @@ def plot_mu2_with_alpha_beta(
             Hblk = np.zeros_like(H)
 
             for (rAB0, s0), Hl in layers.items():
+                if debug_asym:
+                    print(f"{label:16s} asym rel, layer {s0}:", rel_asym(Hl))
                 Hblk += Hl * prefactor_fn(alpha, beta, rAB0, s0)
 
             if debug_asym:
@@ -555,3 +557,5 @@ def plot_mu2_with_alpha_beta(
 
     redraw()
     plt.show(block=True)
+
+
