@@ -28,7 +28,8 @@ delta = 0
 plot_rAB_target = 1.4
 
 nMu = 32  # todo: test effect of these values on solution quality
-nS = 30
+nrS = 30  # 30-60 are optimal according to numerical tests (any more, and accumulation of numerical errors starts taking over)
+nrS12 = 11  # Odd -> s1=s2 allowed
 sMax = 50
 
 # coords = "rij"
@@ -153,13 +154,12 @@ H_beta_2_layers = {}
 H_alpha_beta_layers = {}
 
 for rAB in abRange:
-    # s_shells, sW = build_s_shells(rAB, Ks=nS, s_max=sMax, gamma = 3.0)
-    s_shells, sW = build_s_shells(rAB, nS, s_max=sMax, alpha = 10., gamma = 2.0)
-    print((s_shells))
+    s_shells, sW = build_s_shells(rAB, Ks=nrS, s_max=sMax, gamma = 3.0)
 
     for ks, s in enumerate(s_shells):
 
-        s1_vals, s2_vals, splitW = split_s(s, rAB, Ku=10)
+        s1_vals, s2_vals, splitW = split_s(s, rAB, Ku=nrS12)
+        print(s1_vals - s2_vals)
 
         Sl = np.zeros((bSize, bSize), dtype=np.float64)
         Hl_1 = np.zeros((bSize, bSize), dtype=np.float64)
@@ -175,7 +175,7 @@ for rAB in abRange:
             x1, y1, _, mu1, _, w1 = sample_s_shell(rAB, s1, Nphi=2, nMu=nMu)  # x-y plane only
 
             # sample electron 2 on its s2-shell
-            x2, y2, z2, mu2, _, w2 = sample_s_shell(rAB, s2, octant=True, nMu=nMu, Nphi=12)
+            x2, y2, z2, mu2, _, w2 = sample_s_shell(rAB, s2, octant=True, nMu=nMu, Nphi=12, s1=s1/(s1+s2))
             # x2, y2, z2, mu2, _, w2 = sample_s_shell(rAB, s2, nMu=4*nMu)
 
             B, A_1, A_alpha, A_beta, A_alphabeta, A_alpha2, P = calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, sW[ks] * splitW[j], coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X)
