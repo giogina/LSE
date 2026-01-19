@@ -37,6 +37,7 @@ coords = "s12mu" # todo: H slightly non-hermitian? How to fix that?
 # TODO: check worst_pair function - for some monomials, H.T@H - H remains large. Why those? Is it an error?
 # TODO: octant = False gives almost exactly the same plots, but slightly less-negative energy, and less asym.
 # todo: at high s, the H entries become MASSIVE (lack of exp). Numerical problem?
+# todo: removing r12 dependence vastly improves H symmetry (5e-09) - must be a r12 sampling issue.
 if BO:
     M1M = 1
     M_inv = 0
@@ -152,7 +153,9 @@ H_beta_2_layers = {}
 H_alpha_beta_layers = {}
 
 for rAB in abRange:
-    s_shells, sW = build_s_shells(rAB, Ks=nS, s_max=sMax, gamma = 3.0)
+    # s_shells, sW = build_s_shells(rAB, Ks=nS, s_max=sMax, gamma = 3.0)
+    s_shells, sW = build_s_shells(rAB, nS, s_max=sMax, alpha = 10., gamma = 2.0)
+    print((s_shells))
 
     for ks, s in enumerate(s_shells):
 
@@ -172,7 +175,7 @@ for rAB in abRange:
             x1, y1, _, mu1, _, w1 = sample_s_shell(rAB, s1, Nphi=2, nMu=nMu)  # x-y plane only
 
             # sample electron 2 on its s2-shell
-            x2, y2, z2, mu2, _, w2 = sample_s_shell(rAB, s2, octant=True, nMu=nMu)
+            x2, y2, z2, mu2, _, w2 = sample_s_shell(rAB, s2, octant=True, nMu=nMu, Nphi=12)
             # x2, y2, z2, mu2, _, w2 = sample_s_shell(rAB, s2, nMu=4*nMu)
 
             B, A_1, A_alpha, A_beta, A_alphabeta, A_alpha2, P = calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, sW[ks] * splitW[j], coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X)
@@ -184,10 +187,10 @@ for rAB in abRange:
                 i, j = np.unravel_index(np.argmax(np.abs(As)), As.shape)
                 # if np.abs(As[i, j] / (H[i, j] + H[j, i] + np.abs(As[i, j]))) > 1e-8:
                 print(str, i, j, basis_idx[i], basis_idx[j], H[i, j], H[j, i], As[i, j], np.linalg.norm(As) / max(1e-300, np.linalg.norm(H)))
-            print(s, j, s1, s2)
-            (worst_pair(B, A_1, "A1"))
-            (worst_pair(B, A_alpha, "Aalpha"))
-            # (worst_pair(B, A_beta, "Abeta"))
+            # print(s, j, s1, s2)
+            # (worst_pair(B, A_1, "A1"))
+            # (worst_pair(B, A_alpha, "Aalpha"))
+            # # (worst_pair(B, A_beta, "Abeta"))
 
             B = np.asfortranarray(B)
             BT = np.asfortranarray(B.T)
