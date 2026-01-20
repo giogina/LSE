@@ -1,44 +1,40 @@
 import time
 from scipy.sparse import csr_matrix
-
-from util import diag_rescale_generalized
 from plot import *
 from calc import *
 from sampling import *
+import pickle
 
 BO = True
 M = 1836.153
 
 # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
 h_max = 5
-k_max = 8
-n_max = 8
-m_max = 8 # stmu only
-ij_max = 8 # stmu only
+k_max = 10
+n_max = 10
+m_max = 10 # stmu only
+ij_max = 10 # stmu only
 ab_max = 0 # rij only
-total_max = 5
+total_max = 10
 nm_min = -0 # TODO: why doesn't that improve things?
 delta = 0
-
-# todo: alpha = 0.8 actually better, again? (at least at total_max = 5)
 
 # delta = 0.1: E[0] := -1.174474883468479:
 # E[0] := -1.1744788198234721 at delta=0.1, alpha=0.695
 
 plot_rAB_target = 1.4
 
-nMu = 32  # todo: test effect of these values on solution quality
-nrS = 30  # 30-60 are optimal according to numerical tests (any more, and accumulation of numerical errors starts taking over)
-nrS12 = 11  # Odd -> s1=s2 allowed
-sMax = 50
+nMu = 16  # todo: test effect of these values on solution quality
+nrPhi = 12
+nrS = 20  # 30-60 are optimal according to numerical tests (any more, and accumulation of numerical errors starts taking over)
+nrS12 = 21  # Odd -> s1=s2 allowed
+sMax = 30
 
 # coords = "rij"
 # coords = "stmu"
 coords = "s12mu" # todo: H slightly non-hermitian? How to fix that?
-# TODO: check worst_pair function - for some monomials, H.T@H - H remains large. Why those? Is it an error?
 # TODO: octant = False gives almost exactly the same plots, but slightly less-negative energy, and less asym.
-# todo: at high s, the H entries become MASSIVE (lack of exp). Numerical problem?
-# todo: removing r12 dependence vastly improves H symmetry (5e-09) - must be a r12 sampling issue.
+
 if BO:
     M1M = 1
     M_inv = 0
@@ -105,7 +101,6 @@ if coords == "rij":
     # groups = [np.asarray(l, dtype=np.int32) for l in sym_b.values()]
     amin = int(amin)
     amax = int(amax)
-    print(amin, amax)
 
 elif coords == "stmu" or coords == "s12mu":
     for h in frange(0, h_max, 1):
@@ -124,7 +119,7 @@ elif coords == "stmu" or coords == "s12mu":
                             if t > total_max: continue
                             # rows.append((h, k, n - np.floor(i/2), m - np.floor(j/2), i, j))  #-k-m
                             rows.append((h, k, n, m, i, j))  #-k-m
-
+                            # print((h, k, n, m, i, j))
 
 basis_idx = np.array(rows, dtype=np.int16)
 
@@ -143,23 +138,39 @@ elif coords == "rij":
 start = time.time()
 
 nrP = 0
-abRange = frange(1.4, 1.4, 0.2)
+if BO:
+    abRange, wAB = [1.4], [1.0]
+else:
+    abRange, wAB = build_rAB_grid(KR = 10, R_min=0.8, R_max=2.0, gamma = 1.0)
 
-S_layers = {}
-H_1_layers = {}
-H_alpha_layers = {}
-H_alpha_2_layers = {}
-H_beta_layers = {}
-H_beta_2_layers = {}
-H_alpha_beta_layers = {}
+layers = {
+    "S": {},
+    "H_1": {},
+    "H_alpha": {},
+    "H_alpha2": {},
+    "H_alphabeta": {},
+    "H_beta": {},
+    "H_beta2": {},
+    "meta": {
+        "coords": coords,
+        "basis_idx": basis_idx,
+        "delta": delta,
+        "M1M": M1M,
+        "M_inv": M_inv,
+        "Fij": Fij,
+        "Fji": Fji,
+        "X": X
+    }
+}
 
-for rAB in abRange:
+for kab, rAB in enumerate(abRange):
     s_shells, sW = build_s_shells(rAB, Ks=nrS, s_max=sMax, gamma = 3.0)
 
     for ks, s in enumerate(s_shells):
 
-        s1_vals, s2_vals, splitW = split_s(s, rAB, Ku=nrS12)
-        print(s1_vals - s2_vals)
+        s1_vals, s2_vals, splitW = split_s(s, rAB, Ku=nrS12, gamma = 4.0)  # gamma: a lot more s1 ~ s2
+        # print((s1_vals - s2_vals)[8:13])
+        # print((s - s2_vals - rAB)[0:3])
 
         Sl = np.zeros((bSize, bSize), dtype=np.float64)
         Hl_1 = np.zeros((bSize, bSize), dtype=np.float64)
@@ -172,25 +183,13 @@ for rAB in abRange:
         for j, (s1, s2) in enumerate(zip(s1_vals, s2_vals)):
 
             # sample electron 1 on its s1-shell
-            x1, y1, _, mu1, _, w1 = sample_s_shell(rAB, s1, Nphi=2, nMu=nMu)  # x-y plane only
+            x1, y1, _, mu1, _, w1 = sample_s_shell(rAB, s1, Nphi=2, nMu=2*nMu)  # x-y plane only
 
             # sample electron 2 on its s2-shell
-            x2, y2, z2, mu2, _, w2 = sample_s_shell(rAB, s2, octant=True, nMu=nMu, Nphi=12, s1=s1/(s1+s2))
+            x2, y2, z2, mu2, _, w2 = sample_s_shell(rAB, s2, octant=True, nMu=nMu, Nphi=nrPhi, s1=s1)
             # x2, y2, z2, mu2, _, w2 = sample_s_shell(rAB, s2, nMu=4*nMu)
 
-            B, A_1, A_alpha, A_beta, A_alphabeta, A_alpha2, P = calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, sW[ks] * splitW[j], coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X)
-
-            def worst_pair(B, A, str):
-                BW = B
-                H = BW.T @ A  # This is the assembled block (for diagnosis only)
-                As = H - H.T
-                i, j = np.unravel_index(np.argmax(np.abs(As)), As.shape)
-                # if np.abs(As[i, j] / (H[i, j] + H[j, i] + np.abs(As[i, j]))) > 1e-8:
-                print(str, i, j, basis_idx[i], basis_idx[j], H[i, j], H[j, i], As[i, j], np.linalg.norm(As) / max(1e-300, np.linalg.norm(H)))
-            # print(s, j, s1, s2)
-            # (worst_pair(B, A_1, "A1"))
-            # (worst_pair(B, A_alpha, "Aalpha"))
-            # # (worst_pair(B, A_beta, "Abeta"))
+            B, A_1, A_alpha, A_beta, A_alphabeta, A_alpha2, P = calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, wAB[kab] * sW[ks] * splitW[j], coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X)
 
             B = np.asfortranarray(B)
             BT = np.asfortranarray(B.T)
@@ -215,19 +214,21 @@ for rAB in abRange:
 
             nrP += P
 
-        S_layers[rAB, s] = Sl
-        H_1_layers[rAB, s] = Hl_1
-        H_alpha_layers[rAB, s] = Hl_alpha
-        H_alpha_2_layers[rAB, s] = Hl_alpha2
-        H_alpha_beta_layers[rAB, s] = Hl_alphabeta
-        H_beta_layers[rAB, s] = Hl_beta
-        H_beta_2_layers[rAB, s] = Hl_beta2
+        layers["S"][rAB, s] = Sl
+        layers["H_1"][rAB, s] = Hl_1
+        layers["H_alpha"][rAB, s] = Hl_alpha
+        layers["H_alpha2"][rAB, s] = Hl_alpha2
+        layers["H_alphabeta"][rAB, s] = Hl_alphabeta
+        layers["H_beta"][rAB, s] = Hl_beta
+        layers["H_beta2"][rAB, s] = Hl_beta2
 
         print(ks, rAB, s, nrP, time.time() - start)
 
-plot_mu2_with_alpha_beta(
-    # evaluator
-    calc_AB=calc_AB,
+with open("SHlayers.pkl", "wb") as f:
+    pickle.dump(layers, f, protocol=pickle.HIGHEST_PROTOCOL)
+
+
+plot_Psi_Eloc_by_alpha_beta(
 
     # plot grid (electron 1)
     x1_min=-9.0,
@@ -236,39 +237,13 @@ plot_mu2_with_alpha_beta(
     y1_max= 9.0,
     nx1=50,
     ny1=50,
-
-    # basis / physics
-    coords=coords,
-    basis_idx=basis_idx,
-    delta=delta,
-    M1M=M1M,
-    M_inv=M_inv,
-    Fij=Fij,
-    Fji=Fji,
-    X=X,
-
-    # matrices from main computation
-    S_layers=S_layers,
-    H_1_layers=H_1_layers,
-    H_alpha_layers=H_alpha_layers,
-    H_beta_layers=H_beta_layers,
-    H_alpha_2_layers=H_alpha_2_layers,
-    H_beta_2_layers=H_beta_2_layers,
-    H_alpha_beta_layers=H_alpha_beta_layers,
-
-    # generalized eig helper
-    matSize=bSize,
-    diag_rescale_generalized=diag_rescale_generalized,
-
-    # geometry labels / exp factor
+    meta = layers["meta"],
+    SH_layers=layers,
     plot_rAB_target=plot_rAB_target,
 
     # alpha/beta sliders
     alpha_values=np.arange(0.4, 1.3, 0.005),
-    beta_values=[0],
-
-    # numerics / plot behavior
-    only_negative_E=True,
+    beta_values=np.arange(-3.0, 20.0, 0.01),
     eps=1e-14,
     zlim_eloc=(-1.5, -0.9)
 )
