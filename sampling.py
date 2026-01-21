@@ -15,6 +15,50 @@ def frange(start, stop, step):
             yield x
             x += step
 
+import numpy as np
+from numpy.polynomial.legendre import leggauss
+
+def build_rAB_grid(
+    KR: int,
+    R_min: float,
+    R_max: float,
+    gamma: float = 2.0,
+):
+    """
+    Quadrature nodes/weights for integrating over R = rAB.
+
+    Returns R, wR such that:
+      measure="plain":  ∫_{R_min}^{R_max} f(R) dR  ≈ Σ wR[i] f(R[i])
+      measure="R2":     ∫_{R_min}^{R_max} f(R) 4πR^2 dR ≈ Σ wR[i] f(R[i])
+
+    gamma>1 clusters points toward R_min (useful if small-R is stiff).
+    If you want clustering toward BOTH ends, see the note below.
+    """
+    if gamma < 1.0:
+        raise ValueError("gamma must be >= 1.0")
+    if R_max <= R_min:
+        raise ValueError("R_max must be > R_min")
+
+    # Gauss-Legendre on [-1,1] -> u in [0,1]
+    x, w = leggauss(KR)
+    u = 0.5 * (x + 1.0)
+    wu = 0.5 * w
+
+    # Power map u -> t in [0,1] with clustering near 0
+    t = u ** gamma
+    dt_du = gamma * (u ** (gamma - 1.0))
+
+    # Map to R
+    R = R_min + (R_max - R_min) * t
+    dR_du = (R_max - R_min) * dt_du
+
+    # Base weights for dR
+    wR = wu * dR_du
+    wR = wR * (4.0 * np.pi * R * R)
+
+    return R, wR
+
+
 def build_s_shells(rAB, Ks, s_max, gamma=3.0):  # (Yes, leggauss is used on purpose. It works better than laggauss here, somehow.)
     s_min = 2.0 * rAB
 
@@ -27,49 +71,127 @@ def build_s_shells(rAB, Ks, s_max, gamma=3.0):  # (Yes, leggauss is used on purp
     ws = wu * ds_du
     return s, ws
 
-def split_s(s, rAB, Ku, gamma = 6.0):
+import numpy as np
+from numpy.polynomial.legendre import leggauss
+
+def split_s(s, rAB, Ku, gamma=6.0, eta_end=0.5, end_mode="both"):
     """
-    Deterministic split of total s into s1,s2.
-    s1 ∈ [rAB, s-rAB], s2 = s - s1.
-    rAB is the full internuclear distance R.
+    Deterministic split of total s into s1,s2 with two simultaneous clusterings:
+      1) around s1=s2 (center of interval) via x -> sign(x)|x|^gamma
+      2) around s1≈rAB (and optionally s2≈rAB) via an "end clustering" map
+
+    Parameters
+    ----------
+    gamma : float >= 1
+        Controls strength of both clusterings.
+    eta_end : float in [0,1]
+        Mix between center-clustering (0) and end-clustering (1).
+    end_mode : {"both", "left"}
+        "both": cluster near both ends (s1≈rAB and s2≈rAB)
+        "left": cluster only near left end (s1≈rAB)
+
+    Returns
+    -------
+    s1, s2, w_split
     """
     if gamma < 1.0:
         raise ValueError("gamma must be >= 1.0")
+    if not (0.0 <= eta_end <= 1.0):
+        raise ValueError("eta_end must be in [0,1]")
+    if end_mode not in ("both", "left"):
+        raise ValueError("end_mode must be 'both' or 'left'")
 
     # Gauss-Legendre on [-1,1]
     x, w = leggauss(Ku)
 
-    xg = np.sign(x) * np.abs(x)**gamma  # Power-around-center on [-1,1]
+    # --- (A) Center clustering on [-1,1]: densify near x=0 -> u=0.5 (=> s1=s2)
+    xg = np.sign(x) * np.abs(x) ** gamma
 
-    if gamma == 1.0:   # Jacobian dxg/dx
-        J = np.ones_like(x)
+    if gamma == 1.0:
+        dxg_dx = np.ones_like(x)
     else:
-        J = gamma * np.abs(x)**(gamma - 1.0)
+        dxg_dx = gamma * np.abs(x) ** (gamma - 1.0)
 
-    u = 0.5 * (xg + 1.0)  # Map to u ∈ [0,1]
+    u_center = 0.5 * (xg + 1.0)
+    du_center_dx = 0.5 * dxg_dx
+
+    # --- (B) End clustering on [0,1], built from the SAME xg (so "same gamma")
+    # u0 is already center-clustered; we now remap it to densify near ends.
+    u0 = u_center
+    du0_dx = du_center_dx
+
+    if end_mode == "both":
+        # cosine map clusters near u=0 and u=1 (endpoints) with smooth Jacobian
+        u_end = 0.5 * (1.0 - np.cos(np.pi * u0))
+        du_end_du0 = 0.5 * np.pi * np.sin(np.pi * u0)
+        du_end_dx = du_end_du0 * du0_dx
+    else:  # "left"
+        # power map clusters near u=0 only
+        u_end = u0 ** gamma
+        if gamma == 1.0:
+            du_end_du0 = np.ones_like(u0)
+        else:
+            du_end_du0 = gamma * np.maximum(u0, 0.0) ** (gamma - 1.0)
+        du_end_dx = du_end_du0 * du0_dx
+
+    # --- Combine monotonically (convex combo of monotone maps stays monotone)
+    u = (1.0 - eta_end) * u_center + eta_end * u_end
+    du_dx = (1.0 - eta_end) * du_center_dx + eta_end * du_end_dx
+
+    # Map u -> s1 in [rAB, s-rAB]
     span = s - 2.0 * rAB
     s1 = rAB + u * span
     s2 = s - s1
-    w_split = 0.5 * w * J * span
+
+    # Weights: dx -> u -> s1
+    w_split = w * du_dx * span
 
     return s1, s2, w_split
 
-def split_s_old(s, rAB, Ku):
-    """
-    Deterministic split of total s into s1,s2.
-    s1 ∈ [rAB, s-rAB], s2 = s - s1.
-    rAB is the full internuclear distance R.
-    """
-    x, w = leggauss(Ku)       # nodes in [-1,1]
-    u = 0.5 * (x + 1.0)       # map to [0,1]
-    wu = 0.5 * w              # du weights on [0,1]
-
-    # Map u -> s1 in [rAB, s-rAB]
-    s1 = rAB + u * (s - 2.0*rAB)
-    s2 = s - s1
-    w_split = (s - 2.0*rAB) * wu
-
-    return s1, s2, w_split
+#
+# def split_s(s, rAB, Ku, gamma = 6.0):
+#     """
+#     Deterministic split of total s into s1,s2.
+#     s1 ∈ [rAB, s-rAB], s2 = s - s1.
+#     rAB is the full internuclear distance R.
+#     """
+#     if gamma < 1.0:
+#         raise ValueError("gamma must be >= 1.0")
+#
+#     # Gauss-Legendre on [-1,1]
+#     x, w = leggauss(Ku)
+#
+#     xg = np.sign(x) * np.abs(x)**gamma  # Power-around-center on [-1,1]
+#
+#     if gamma == 1.0:   # Jacobian dxg/dx
+#         J = np.ones_like(x)
+#     else:
+#         J = gamma * np.abs(x)**(gamma - 1.0)
+#
+#     u = 0.5 * (xg + 1.0)  # Map to u ∈ [0,1]
+#     span = s - 2.0 * rAB
+#     s1 = rAB + u * span
+#     s2 = s - s1
+#     w_split = 0.5 * w * J * span
+#
+#     return s1, s2, w_split
+#
+# def split_s_old(s, rAB, Ku):
+#     """
+#     Deterministic split of total s into s1,s2.
+#     s1 ∈ [rAB, s-rAB], s2 = s - s1.
+#     rAB is the full internuclear distance R.
+#     """
+#     x, w = leggauss(Ku)       # nodes in [-1,1]
+#     u = 0.5 * (x + 1.0)       # map to [0,1]
+#     wu = 0.5 * w              # du weights on [0,1]
+#
+#     # Map u -> s1 in [rAB, s-rAB]
+#     s1 = rAB + u * (s - 2.0*rAB)
+#     s2 = s - s1
+#     w_split = (s - 2.0*rAB) * wu
+#
+#     return s1, s2, w_split
 
 def shell_area_weight(s1, s2, rAB):
     shell_area_1 = 4*np.pi*((s1 / rAB)**2 - 1/3)
@@ -85,8 +207,8 @@ def sample_s_shell(rAB, s, nMu=12, Nphi=32, octant=False, s1 = 1.0):
     """
     if octant: # todo: test further
         ds = np.abs(s-s1)  # difference between s1, s2 (small ds -> check more small phi values for small r12)
-        gamma_phi = gamma_phi_from_ds(ds, gamma_max=20.)
-        return sample_s_shell_phi_bias_octant(rAB, s, int(nMu*1.3), Nphi*int(gamma_phi), gamma_phi) # * int(np.sqrt(gamma_phi))
+        gamma_phi = gamma_phi_from_ds(ds, gamma_max=8.)
+        return sample_s_shell_phi_bias_octant(rAB, s, nMu+1, Nphi, gamma_phi) # * int(np.sqrt(gamma_phi))
         # return sample_s_shell_phi_bias_octant(rAB, s, nMu, Nphi, 3.0) # todo: the 1.3 factor helped a lot too
 
     mu = s / rAB
@@ -227,81 +349,6 @@ def sample_s_shell_phi_bias_octant(rAB, s, nMu=12, Nphi=16, gamma_phi=3.0):
 
 
 
-
-# for alpha in frange(0.75, 0.75, 0.01):
-#     S = np.zeros((matSize, matSize), dtype=np.float64)
-#     H = np.zeros((matSize, matSize), dtype=np.float64)
-#
-#     # alpha = 0.74
-#     beta = 0
-#
-#     for (rAB, s), Sl in S_layers.items(): S += Sl * np.exp(-2*alpha*s - 2*beta*rAB)
-#     for (rAB, s), Hl in H_1_layers.items(): H += Hl * np.exp(-2*alpha*s - 2*beta*rAB)
-#     for (rAB, s), Hl in H_alpha_layers.items(): H += Hl * alpha * np.exp(-2*alpha*s - 2*beta*rAB)
-#     for (rAB, s), Hl in H_alpha_2_layers.items(): H += Hl * alpha**2 * np.exp(-2*alpha*s - 2*beta*rAB)
-#     for (rAB, s), Hl in H_alpha_beta_layers.items(): H += Hl * alpha*beta * np.exp(-2*alpha*s - 2*beta*rAB)
-#     for (rAB, s), Hl in H_beta_layers.items(): H += Hl * beta * np.exp(-2*alpha*s - 2*beta*rAB)
-#     for (rAB, s), Hl in H_beta_2_layers.items(): H += Hl * beta**2 * np.exp(-2*alpha*s - 2*beta*rAB)
-#
-#     H, S = diag_rescale_generalized(H, S)
-#
-#     eigvals = np.linalg.eigvalsh(S)
-#     # print("After Diag rescaling:")
-#     # print(eigvals)
-#     # print("min eig:", np.abs(eigvals).min())
-#     # print("max eig:", np.abs(eigvals).max())
-#     print(f"\nalpha = {alpha}, cond: {eigvals.max() / eigvals.min():.3e}")
-#
-#     # inspect_small_overlap_eigenvectors(S)
-#
-#     h_idx = basis_idx[:, 0]
-#     k_idx = basis_idx[:, 1]
-#     n_idx = basis_idx[:, 2]
-#     m_idx = basis_idx[:, 3]
-#     i_idx = basis_idx[:, 4]
-#     j_idx = basis_idx[:, 5]
-#
-#     E, C = eig(H, S)
-#     idx = np.argsort(E)
-#     E = np.real(E[idx])
-#     C = np.real(C[:, idx])
-#
-#     i = 0
-#     while i < len(E) and E[i] < 0:
-#         ci = C[:, i]
-#         ci = ci/ci[0]
-#         # hp = test_A @ ci
-#         # p = test_B @ ci
-#
-#         eps = np.linalg.norm(H @ ci - E[i] * (S @ ci)) / (np.linalg.norm(H @ ci) + 1e-30)
-#         print(f"E[{i}] := {E[i]}: epsilon[{i}] := {eps}: "
-#               # f"C[{i}] := {[f' + ({float(x)}) * rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}' for ii, x in enumerate(ci)]}")
-#               f"C[{i}] := " + "".join( f" + ({float(x)})*rAB^{h_idx[ii]}*r12^{k_idx[ii]}*s^{n_idx[ii]}*t^{m_idx[ii]}*mu1^{i_idx[ii]}*mu2^{j_idx[ii]}" for ii, x in enumerate(ci)) )
-#         i += 1
-#
-#     x = x1_all
-#     y = y1_all
-#     rAB = plot_rAB_target
-#     s = plot_s2_target + np.sqrt((x + 0.5 * rAB) ** 2 + y ** 2) + np.sqrt((x - 0.5 * rAB) ** 2 + y ** 2)
-#
-#     plot_phi_and_local_energy_mu2(
-#         x1_all, y1_all, mu2_all,
-#         B_plot_all,
-#         A_1_all,
-#         A_alpha_all,
-#         A_beta_all,
-#         A_alpha2_all,
-#         A_alphabeta_all,
-#         A_beta2_all,
-#         rAB = plot_rAB_target,
-#         phi = plot_phi_target,
-#         s2 = plot_s2_target,
-#         exps = np.exp(-alpha * s - beta * rAB)[:, None],
-#         C = C, E = E,
-#         alpha=alpha, beta=beta, zlim_eloc=(-3, 0)
-#     )
-
-import numpy as np
 from math import factorial
 
 def _mu_int(n: int, p: float) -> float:
@@ -370,31 +417,6 @@ def integrate_6d_via_split(rAB, s_max, Ks=48, Ku=32, Nnu=32, Nphi=64, f=None, ga
             total += w_s * w_ij * block
 
     return pref * total
-def test_split_swap_zero(rAB=1.4, s_max=60.0, k=0.8):
-    num = integrate_6d_via_split(
-        rAB, s_max,
-        f=lambda s1,s2,st, *args: (s1 - s2) * np.exp(-k*st)
-    )
-    print("swap-antisym (should be 0):", num)
-def test_split_s1_moment(rAB=1.4, s_max=60.0, k=0.8):
-    num_s1 = integrate_6d_via_split(
-        rAB, s_max,
-        f=lambda s1,s2,st, *args: (s1) * np.exp(-k*st)
-    )
-    num_s2 = integrate_6d_via_split(
-        rAB, s_max,
-        f=lambda s1,s2,st, *args: (s2) * np.exp(-k*st)
-    )
-
-    # exact over infinite range (your finite s_max should be large enough with exp decay)
-    ex = I3_exp(rAB,k) * I3_s_exp(rAB,k)
-
-    print("∫ s1 e^{-k(s1+s2)}:", num_s1)
-    print("∫ s2 e^{-k(s1+s2)}:", num_s2)
-    print("exact:", ex)
-    print("relerr s1:", abs(num_s1-ex)/abs(ex))
-    print("relerr s2:", abs(num_s2-ex)/abs(ex))
-    print("swap diff (should be 0):", num_s1-num_s2)
 
 def integrate_6d_gaussian_r12(rAB, alpha, beta, Kmu=22, Nnu=12, Nphi=24, p_map=1.2):
     """
@@ -411,12 +433,12 @@ def integrate_6d_gaussian_r12(rAB, alpha, beta, Kmu=22, Nnu=12, Nphi=24, p_map=1
     total = 0.0
     for i, mui in enumerate(mu):
         s1 = mui * rAB
-        x1,y1,z1,nu1,phi1,w1 = sample_s_shell(rAB, s1, nMu=Nnu, Nphi=2, octant=False)
+        x1,y1,z1,nu1,phi1,w1 = sample_s_shell(rAB, s1, nMu=12, Nphi=2, octant=False)
         r1_2 = x1*x1 + y1*y1 + z1*z1
 
         for j, muj in enumerate(mu):
             s2 = muj * rAB
-            x2,y2,z2,nu2,phi2,w2 = sample_s_shell(rAB, s2, nMu=12, Nphi=24, octant=True, s1=s1)
+            x2,y2,z2,nu2,phi2,w2 = sample_s_shell(rAB, s2, nMu=12, Nphi=12, octant=True, s1=s1)
             r2_2 = x2*x2 + y2*y2 + z2*z2
 
             dx = x1[:,None]-x2[None,:]
@@ -447,6 +469,26 @@ def exact_6d_gaussian_r12sq(alpha, beta):
 
 def test_r12_moment(rAB=1.4, alpha=0.7, beta=0.4):
     def integrate_r12sq():
+
+        # s_shells, sW = build_s_shells(rAB, Ks=30, s_max=50, gamma=3.0)
+        # for ks, s in enumerate(s_shells):
+        #     s1_vals, s2_vals, splitW = split_s(s, rAB, Ku=13)
+        #
+        #     for j, (s1, s2) in enumerate(zip(s1_vals, s2_vals)):
+        #         x1, y1, _, mu1, _, w1 = sample_s_shell(rAB, s1, Nphi=2, nMu=12)  # x-y plane only
+        #         x2, y2, z2, mu2, _, w2 = sample_s_shell(rAB, s2, octant=True, nMu=12, Nphi=12, s1=s1)
+        #
+        #         r1_2 = x1*x1 + y1*y1
+        #         r2_2 = x2*x2 + y2*y2 + z2*z2
+        #
+        #         dx = x1[:,None]-x2[None,:]
+        #         dy = y1[:,None]-y2[None,:]
+        #         dz = -z2[None,:]
+        #         r12_2 = dx*dx+dy*dy+dz*dz
+        #
+        #         base = np.exp(-alpha*(r1_2[:,None]+r2_2[None,:]) - beta*r12_2)
+        #         block = np.sum((w1[:,None]*w2[None,:]) * (r12_2 * base))
+
         t, w = np.polynomial.laguerre.laggauss(22)
         p_map=1.2
         mu = 1.0 + t / p_map
@@ -481,9 +523,6 @@ def test_r12_moment(rAB=1.4, alpha=0.7, beta=0.4):
     print("6D r12^2 moment num:", num)
     print("6D r12^2 moment exact:", ex)
     print("relerr:", abs(num-ex)/abs(ex))
-
-import numpy as np
-import matplotlib.pyplot as plt
 
 def plot_r12_weight_cdf(
     rAB=1.4,
@@ -594,212 +633,17 @@ def plot_r12_weight_cdf(
     plt.title("Weighted r12 distribution (mass per bin, not /Δr)")
     plt.grid(True)
     plt.show()
-    #
-    # eps = 1e-12
-    # wC = w_all / np.maximum(r12_all, eps)
-    #
-    # # raw CDF
-    # order = np.argsort(r12_all)
-    # r = r12_all[order]
-    # w = w_all[order]
-    # cdf = np.cumsum(w) / np.sum(w)
-    #
-    # # Coulomb CDF
-    # wC_sorted = wC[order]
-    # cdfC = np.cumsum(wC_sorted) / np.sum(wC_sorted)
-    #
-    # plt.figure()
-    # plt.plot(r, cdf, label="raw W")
-    # plt.plot(r, cdfC, label="Coulomb W/r12")
-    # plt.xlabel("r12")
-    # plt.ylabel("CDF")
-    # plt.grid(True)
-    # plt.legend()
-    # plt.show()
+
 
     return r_sorted, cdf, centers, hist
-import numpy as np
-import matplotlib.pyplot as plt
 
 
-import numpy as np
-import matplotlib.pyplot as plt
 
 
-def plot_r12_weight_vs_r2(
-    rAB=1.4,
-    nS=40,
-    sMax=50.0,
-    gamma_s=3.0,
-    Ku=11,
-    gamma_split=6.0, # todo: helps a lot
-    nMu=32,
-    Nphi1=2,
-    Nphi2=24,
-    r_plot_max=10.0,
-    nbins=220,
-    max_pairs=200_000_000,
-    seed=0,
-    # fit window used to determine the unknown constant C in C*r^2
-    r_fit_min=0.015,
-    r_fit_max=0.3,
-):
-    """
-    Plots the *effective sampled* r12 weight density dW/dr against the
-    geometric expectation ~ C * r^2 (C fitted on [r_fit_min, r_fit_max]),
-    focusing on r <= r_plot_max (e.g. 10).
 
-    Why this is the right comparison:
-      - Your quadrature induces a measure on r12 with density dW/dr.
-      - Near r12->0 the correct scaling is r^2 (3D relative volume element).
-      - The overall constant C is not known a priori, so we fit it.
-      - We only care about accuracy up to r_plot_max because your integrands
-        decay at large s (thus large r12 contribute little anyway).
-
-    Requirements:
-      build_s_shells, split_s, sample_s_shell must exist in the namespace.
-
-    Returns:
-      centers, density, ref_density, ratio
-    """
-
-    rng = np.random.default_rng(seed)
-
-    # --- collect r12 and weights exactly as your integrator would weight them ---
-    s_shells, sW = build_s_shells(rAB, Ks=nS, s_max=sMax, gamma=gamma_s)
-
-    r12_chunks, w_chunks = [], []
-    total_pairs = 0
-
-    for ks, s in enumerate(s_shells):
-        s1_vals, s2_vals, splitW = split_s(s, rAB, Ku=Ku, gamma=gamma_split)
-        outer_w = sW[ks]
-
-        for j_split, (s1, s2) in enumerate(zip(s1_vals, s2_vals)):
-            x1, y1, z1, *_ , w1 = sample_s_shell(rAB, s1, nMu=nMu, Nphi=Nphi1, octant=False)
-            x2, y2, z2, *_ , w2 = sample_s_shell(rAB, s2, nMu=nMu, Nphi=Nphi2, octant=True,  s1=s1)
-
-            W_outer = outer_w * splitW[j_split]
-
-            dx = x1[:, None] - x2[None, :]
-            dy = y1[:, None] - y2[None, :]
-            dz = z1[:, None] - z2[None, :]
-            r12 = np.sqrt(dx*dx + dy*dy + dz*dz)
-
-            W = W_outer * w1[:, None] * w2[None, :]
-
-            flat_r = r12.ravel()
-            flat_w = W.ravel()
-
-            m = np.isfinite(flat_r) & np.isfinite(flat_w) & (flat_w > 0) & (flat_r > 0)
-            flat_r = flat_r[m]
-            flat_w = flat_w[m]
-
-            n = flat_r.size
-            if total_pairs + n > max_pairs:
-                keep = max_pairs - total_pairs
-                if keep <= 0:
-                    break
-                idx = rng.choice(n, size=keep, replace=False)
-                flat_r = flat_r[idx]
-                flat_w = flat_w[idx]
-                n = keep
-
-            r12_chunks.append(flat_r.astype(np.float64, copy=False))
-            w_chunks.append(flat_w.astype(np.float64, copy=False))
-            total_pairs += n
-
-        if total_pairs >= max_pairs:
-            break
-
-    if not r12_chunks:
-        raise RuntimeError("No samples collected. Increase max_pairs or check parameters.")
-
-    r12_all = np.concatenate(r12_chunks)
-    w_all = np.concatenate(w_chunks)
-
-    # --- build a density dW/dr on [min, r_plot_max] with log bins (so small-r is visible) ---
-    rmin = max(np.min(r12_all), 1e-6)
-    rmax = min(r_plot_max, np.max(r12_all))
-    if rmax <= rmin:
-        raise RuntimeError("r_plot_max too small or no r12 support.")
-
-    edges = np.geomspace(rmin, rmax, nbins + 1)
-    mass, _ = np.histogram(r12_all, bins=edges, weights=w_all)
-    widths = np.diff(edges)
-    centers = np.sqrt(edges[:-1] * edges[1:])
-
-    # density: mass per unit r (not normalized to 1 unless you choose to)
-    density = mass / widths
-
-    # --- fit the unknown constant C in C*r^2 on a user-chosen window ---
-    fit_mask = (centers >= r_fit_min) & (centers <= r_fit_max) & np.isfinite(density) & (density > 0)
-    if np.count_nonzero(fit_mask) < 5:
-        raise RuntimeError("Not enough bins in fit window; adjust r_fit_min/r_fit_max or nbins.")
-
-    # least squares fit: density ~ C * r^2
-    x = centers[fit_mask]**2
-    y = density[fit_mask]
-    C = np.dot(x, y) / np.dot(x, x)
-
-    ref_density = C * centers**2
-    ratio = density / np.maximum(ref_density, 1e-300)
-
-    # --- plots ---
-    plt.figure()
-    plt.loglog(centers, density, label="sampled dW/dr (weighted)")
-    plt.loglog(centers, ref_density, "--", label=f"fitted C·r^2  (fit {r_fit_min}..{r_fit_max})")
-    plt.xlabel("r12")
-    plt.ylabel("dW/dr  (weight density)")
-    plt.title(f"r12 weight density vs C·r^2  (r<= {rmax:g}, pairs≈{len(r12_all):,})")
-    plt.grid(True, which="both")
-    plt.legend()
-    plt.show()
-
-    plt.figure()
-    plt.semilogx(centers, ratio)
-    plt.axhline(1.0, color="k", ls="--")
-    plt.xlabel("r12")
-    plt.ylabel("sampled / (C·r^2)")
-    plt.title("Shape error vs r^2 (flat=good)")
-    plt.grid(True, which="both")
-    plt.show()
-
-    # # --- a small-r slope diagnostic that’s actually meaningful ---
-    # # Fit slope of CDF in a small region (should be ~3 if relative DOFs are OK)
-    # order = np.argsort(r12_all)
-    # r_sorted = r12_all[order]
-    # w_sorted = w_all[order]
-    # cdf = np.cumsum(w_sorted)
-    # cdf /= cdf[-1]
-    #
-    # # Use a small window relative to r_plot_max; tweak if needed
-    # r_slope_max = min(0.25, rmax * 0.05)
-    # m = (r_sorted > 0) & (r_sorted < r_slope_max) & (cdf > 0)
-    # slope = np.nan
-    # if np.count_nonzero(m) >= 20:
-    #     slope = np.polyfit(np.log(r_sorted[m]), np.log(cdf[m]), 1)[0]
-    #
-    # print(f"\nFitted C for C·r^2: {C:.6e}")
-    # print(f"Small-r CDF slope on (0, {r_slope_max:g}): {slope:.3f} (ideal ~3 if unconstrained)")
-    #
-    # # Weighted quantiles up to r_plot_max: super sensitive to small-r changes
-    # def wquant(q):
-    #     cw = np.cumsum(w_sorted)
-    #     cw /= cw[-1]
-    #     return np.interp(q, cw, r_sorted)
-    #
-    # print("Weighted r12 quantiles:")
-    # for q in [1e-4, 1e-3, 1e-2, 5e-2, 1e-1, 5e-1]:
-    #     print(f"  q={q:>7g}: {wquant(q):.6e}")
-    #
-    # return centers, density, ref_density, ratio
-
-
-plot_r12_weight_vs_r2()
-print("--")
-test_r12_gaussian()
-test_r12_moment()
+# print("--")
+# test_r12_gaussian()
+# test_r12_moment()
 # plot_r12_measure_diagnostics()
 # plot_r12_weight_cdf(rAB=1.4, nS=40, sMax=50, gamma=3.0, Ku=10, nMu=24)
 # test_split_swap_zero()

@@ -4,7 +4,8 @@ import matplotlib as mpl
 from matplotlib.widgets import Slider
 from scipy.linalg import eig
 
-from calc import calc_F_ee, calc_F_ne
+from calc import calc_F_ee, calc_F_ne, calc_AB
+from solver import solve_HS
 
 
 def clustered_linspace(vmin, vmax, n, strength=2.5):
@@ -13,9 +14,8 @@ def clustered_linspace(vmin, vmax, n, strength=2.5):
     w = np.sinh(strength * u) / np.sinh(strength)  # still in [-1,1], denser near 0
     return 0.5*(vmin+vmax) + 0.5*(vmax-vmin)*w
 
-def plot_mu2_with_alpha_beta(
+def plot_Psi_Eloc_by_alpha_beta(
     *,
-    calc_AB,
 
     # plot-domain definition (x1,y1 grid)
     x1_min=-4.0,
@@ -26,27 +26,10 @@ def plot_mu2_with_alpha_beta(
     ny1=140,
 
     # basis / physics inputs
-    coords=None,
-    basis_idx=None,
-    delta=0.0,
-    M1M=1.0,
-    M_inv=0.0,
-    Fij=None,
-    Fji=None,
-    X=None,
+    meta = None,
 
     # layer dictionaries for assembling S/H
-    S_layers=None,
-    H_1_layers=None,
-    H_alpha_layers=None,
-    H_beta_layers=None,
-    H_alpha_2_layers=None,
-    H_beta_2_layers=None,
-    H_alpha_beta_layers=None,
-
-    # sizes + helpers
-    matSize=None,
-    diag_rescale_generalized=None,
+    SH_layers=None,
 
     # fixed geometry needed for exp(-beta*rAB) and distance construction
     plot_rAB_target=None,
@@ -73,6 +56,16 @@ def plot_mu2_with_alpha_beta(
 
     Uses a colored surface on a regular mesh (no triangulation).
     """
+
+    # Extract basis meta data
+    coords = meta["coords"]
+    basis_idx = meta["basis_idx"]
+    delta = meta["delta"]
+    M1M = meta["M1M"]
+    M_inv = meta["M_inv"]
+    Fij = meta["Fij"]
+    Fji = meta["Fji"]
+    X = meta["X"]
 
     # ---------------------------
     # Build x1,y1 grid for plotting (electron 1 in xy plane)
@@ -165,79 +158,6 @@ def plot_mu2_with_alpha_beta(
             shade=False,
         )
 
-    def rel_asym(A):
-        nrm = np.linalg.norm(A)
-        if nrm == 0.0:
-            return 0.0
-        return np.linalg.norm(A - A.T) / nrm
-
-    def assemble_HS(alpha, beta, debug_asym=True):
-        S = np.zeros((matSize, matSize), dtype=np.float64)
-        H = np.zeros((matSize, matSize), dtype=np.float64)
-
-        # ---- Overlap ----
-        for (rAB0, s0), Sl in S_layers.items():
-            S += Sl * np.exp(-2 * alpha * s0 - 2 * beta * rAB0)
-
-        if debug_asym:
-            print("S asym rel:", rel_asym(S))
-
-        # ---- Hamiltonian blocks ----
-        def add_block(label, layers, prefactor_fn):
-            nonlocal H
-            Hblk = np.zeros_like(H)
-
-            for (rAB0, s0), Hl in layers.items():
-                if debug_asym:
-                    print(f"{label:16s} asym rel, layer {s0}:", rel_asym(Hl))
-                Hblk += Hl * prefactor_fn(alpha, beta, rAB0, s0)
-
-            if debug_asym:
-                print(f"{label:16s} asym rel:", rel_asym(Hblk))
-
-            H += Hblk
-
-        add_block(
-            "H_1",
-            H_1_layers,
-            lambda a, b, rAB0, s0: np.exp(-2 * a * s0 - 2 * b * rAB0),
-        )
-
-        add_block(
-            "H_alpha",
-            H_alpha_layers,
-            lambda a, b, rAB0, s0: a * np.exp(-2 * a * s0 - 2 * b * rAB0),
-        )
-
-        add_block(
-            "H_alpha2",
-            H_alpha_2_layers,
-            lambda a, b, rAB0, s0: (a ** 2) * np.exp(-2 * a * s0 - 2 * b * rAB0),
-        )
-
-        add_block(
-            "H_alpha_beta",
-            H_alpha_beta_layers,
-            lambda a, b, rAB0, s0: (a * b) * np.exp(-2 * a * s0 - 2 * b * rAB0),
-        )
-
-        add_block(
-            "H_beta",
-            H_beta_layers,
-            lambda a, b, rAB0, s0: b * np.exp(-2 * a * s0 - 2 * b * rAB0),
-        )
-
-        add_block(
-            "H_beta2",
-            H_beta_2_layers,
-            lambda a, b, rAB0, s0: (b ** 2) * np.exp(-2 * a * s0 - 2 * b * rAB0),
-        )
-
-        if debug_asym:
-            print("H TOTAL asym rel:", rel_asym(H))
-
-        return H, S
-
     def get_cached_eigs(ia, ib):
         key = (int(ia), int(ib))
         if key in eig_cache:
@@ -246,40 +166,7 @@ def plot_mu2_with_alpha_beta(
         alpha = float(alpha_values[ia])
         beta = float(beta_values[ib])
 
-        H, S = assemble_HS(alpha, beta)
-
-        eigS = np.linalg.eigvalsh(S)
-        print(eigS)
-        cond = float(eigS.max() / eigS.min())
-
-        def _asym(A):
-            # relative Frobenius norm of antisymmetric part
-            return np.linalg.norm(A - A.T) / max(1e-300, np.linalg.norm(A))
-
-        print("H dtype:", H.dtype, "S dtype:", S.dtype)
-        print("H asym rel:", _asym(H))
-        print("S asym rel:", _asym(S))
-
-        # symmetry of real/imag parts separately (if complex)
-        if np.iscomplexobj(H):
-            print("H imag max abs:", np.max(np.abs(np.imag(H))))
-        if np.iscomplexobj(S):
-            print("S imag max abs:", np.max(np.abs(np.imag(S))))
-
-        E, C = eig(H, S)  # todo: eigh?
-        idx = np.argsort(np.real(E))
-        E = np.real(E[idx])
-        C = np.real(C[:, idx])
-        print(E[0])
-
-        # for j in range(C.shape[1]):
-        #     cj = C[:, j]
-        #     k = np.argmax(np.abs(cj))
-        #     if cj[k] < 0:
-        #         cj *= -1
-        #     nrm2 = float(cj @ (S @ cj))
-        #     if nrm2 > 0:
-        #         C[:, j] = cj / np.sqrt(nrm2)
+        E, C, cond = solve_HS(SH_layers, alpha, beta, 1e-15)
 
         if only_negative_E:
             sol_idx = np.where(E < 0)[0]
@@ -291,8 +178,6 @@ def plot_mu2_with_alpha_beta(
         entry = {
             "alpha": alpha,
             "beta": beta,
-            "H": H,
-            "S": S,
             "condS": cond,
             "E": E,
             "C": C,
@@ -371,7 +256,7 @@ def plot_mu2_with_alpha_beta(
     fig.subplots_adjust(bottom=0.34)
 
     ax_eloc.view_init(elev=0, azim=45)
-    ax_cusp.view_init(elev=0, azim=45)
+    ax_cusp.view_init(elev=0, azim=0)
 
     # long sliders
     ax_alpha = fig.add_axes([0.15, 0.26, 0.7, 0.035])
@@ -520,9 +405,12 @@ def plot_mu2_with_alpha_beta(
         zmax2 = ax_eloc.get_zlim()[1]
         ax_phi.scatter([geom["x2"]], [geom["y2"]], [zmax1], c=["orange"], s=160, depthshade=False)
         ax_eloc.scatter([geom["x2"]], [geom["y2"]], [zmax2], c=["orange"], s=160, depthshade=False)
+        ax_cusp.set_xlim(-3.0, 3.0)
+        ax_cusp.set_ylim(0.0, 3.0)
+        ax_cusp.set_zlim(-0.1, 0.1)
 
         ax_phi.set_title(
-            f"ψ | alpha={alpha:.6f} beta={beta:.6f}  cond(S)={cache_entry['condS']:.3e}\n"
+            f"ψ | alpha={alpha:.6f} beta={beta:.6f} cond(S)={cache_entry['condS']:.3e}\n"
             f"i={i_real}  E={E[i_real]:.10f}  x2,y2,z2=({geom['x2']:.3f},{geom['y2']:.3f},{geom['z2']:.3f})"
         )
         ax_eloc.set_title(

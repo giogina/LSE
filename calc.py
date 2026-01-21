@@ -46,7 +46,7 @@ def calc_F_rij(basis_idx):
 def calc_Fij_s12mu(basis_idx):
 
     h, k, n, m, i, j, _, _ = expand_idx(basis_idx.astype(np.float64), "s12mu")
-    Fij = np.stack([n*n - n, n, k*k + k, k, m*m - m, m, i*i, i, j*j, j, h*h + h, h, n*i, m*j, n*j, n*m, j*k, n*h, i*k, m*h, n*k, m*i, j*h, m*k, i*j, i*h, np.ones_like(n)], axis=0)
+    Fij = np.stack([n*n - n, n, k*k + k, k, m*m - m, m, i*i, i, j*j, j, h*h + h, h, n*i, m*j, n*j, n*m, j*k, n*h, i*k, m*h, n*k, m*i, j*h, m*k, i*j, i*h, np.ones_like(n)], axis=0) # todo: should it be ones at the end?
 
     h, k, m, n, j, i, _, _ = expand_idx(basis_idx.astype(np.float64), "s12mu")  # switch 1 <-> 2
     Fji = np.stack([n*n - n, n, k*k + k, k, m*m - m, m, i*i, i, j*j, j, h*h + h, h, n*i, m*j, n*j, n*m, j*k, n*h, i*k, m*h, n*k, m*i, j*h, m*k, i*j, i*h, np.ones_like(n)], axis=0)
@@ -571,6 +571,7 @@ def calc_H_alphabeta_s12mu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, Minv, M1M, s1
 
     # Recurring combinations
     one = np.ones_like(r12)
+    zero = np.zeros_like(r12)
     c1 = (cos1AB + cos1BA) * inv_rAB * Minv * one
     c2 = (cos2AB + cos2BA) * inv_rAB * Minv * one
     c3 = (cos21A + cos21B + cos12A + cos12B)
@@ -622,7 +623,6 @@ def calc_H_alphabeta_s12mu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, Minv, M1M, s1
     c_alphabeta_1 = -(cos1BA + cos2AB + cos2BA + cos1AB) * Minv
     c_beta2_1 = -Minv
 
-    zero = np.zeros_like(r12)
     coef_vector_1 = np.stack([c_n2, c_n, c_k2, c_k, c_m2, c_m, c_i2, c_i, c_j2, c_j, c_h2, zero, c_ni, c_mj, c_nj, c_nm, c_jk, c_nh, c_ik, c_mh, c_nk, c_mi, c_jh, c_mk, c_ij, c_ih, c_1], axis=1)
     coef_vector_alpha = np.stack([zero, c_alpha_n, zero, c_alpha_k, zero, c_alpha_m, zero, c_alpha_i, zero, c_alpha_j, zero, c_alpha_h, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_alpha_1], axis=1)
     coef_vector_beta = np.stack([zero, c_beta_n, zero, zero, zero, c_beta_m, zero, c_beta_i, zero, c_beta_j, zero, c_beta_h, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_beta_1], axis=1)
@@ -632,6 +632,11 @@ def calc_H_alphabeta_s12mu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, Minv, M1M, s1
     H_1_ji = coef_vector_1 @ Fji + potential[:, None]
     H_alpha_ij = coef_vector_alpha @ Fij
     H_alpha_ji = coef_vector_alpha @ Fji
+    # print("~")
+    #
+    # print(inv_r12)
+    # print(H_alpha_ij)
+    # print(H_alpha_ji) # same, [0, 0, c_alpha_k = inv_r12]
     H_beta_ij = coef_vector_beta @ Fij
     H_beta_ji = coef_vector_beta @ Fji
     H_alpha2 = c_alpha2_1[:, None]
@@ -682,6 +687,7 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
         dy = y1[:, None] - y2[None, :]
         dz = 0.0 - z2[None, :]
         r12 = np.sqrt(dx * dx + dy * dy + dz * dz).ravel()  # vector of r12 values for all e1, e2 positions
+
         # r12 = np.maximum(r12, 10 ** (-14))
         r12_p = power_table(r12, k_max)
 
@@ -753,14 +759,18 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
             B_12 = B * part_12
             B_21 = B * part_21
 
-            B = B_12 + B_21
+            B = B_12 + B_21  # 3xP, small entries weight*
+
 
             A_1 = H_1_12 * B_12 + H_1_21 * B_21
-            A_alpha = H_alpha_12 * B_12 + H_alpha_21 * B_21
+            A_alpha = H_alpha_12 * B_12 + H_alpha_21 * B_21  # B * [0, 0, 1/r12] - why not identical??
             A_beta = H_beta_12 * B_12 + H_beta_21 * B_21
             A_alpha2 = H_alpha2 * B
             A_alphabeta = H_alphabeta * B
             # A_beta2 = H_beta2 * B
+            # print(B)
+            # print(A_alpha) # [0, 0, B[0]]
+            # B.T @ A_alpha = [0, 0, B[0]^2], [0, 0, B[0]*B[1]]
 
         elif coords == "rij":
             H_1, H_alpha, H_alpha2, H_alphabeta, H_beta, H_beta2, inv_rA, inv_rB = calc_H_alphabeta_rij(Fij, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, delta)
@@ -810,6 +820,7 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
 
         # if abs(s2-plot_s2_target) < 1e-8:
         #     plot_chunks = update_plot_chunks(plot_chunks, mu2, B, P1, P2, x1, y1, phi2, plot_phi_target, A_1, A_alpha, A_alpha2, A_alphabeta, A_beta, A_beta2)
+
 
         return B, A_1, A_alpha, A_beta, A_alphabeta, A_alpha2, P
 
@@ -934,3 +945,29 @@ def calc_F_ee(x1, y1, rAB, coords, basis_idx, delta, X = None):
 
     return B, F_ee
 
+
+def diag_rescale_generalized(H, S, eps=1e-300):
+    """
+    Diagonal re-weighting (NOT whitening):
+        W = diag(1/sqrt(diag(S)))
+        S' = W S W
+        H' = W H W
+
+    Returns: Hs, Ss, W (as 1D vector of diagonal entries), d (diag(S))
+    """
+
+    d = np.diag(S).copy()
+
+    # guard against zeros/negatives on the diagonal (shouldn't happen, but can numerically)
+    if np.any(d <= 0):
+        bad = np.where(d <= 0)[0][:10]
+        raise ValueError(f"Non-positive diagonal entries in S at indices {bad}. "
+                         f"Min diag(S)={d.min():.3e}. Fix basis / integration / symmetrize S first.")
+
+    w = 1.0 / np.sqrt(np.maximum(d, eps))   # vector of W diagonal entries
+
+    # Diagonal scaling without forming W explicitly  ( (W S W)_{ij} = w_i * S_{ij} * w_j )
+    Ss = (S * w[None, :]) * w[:, None]
+    Hs = (H * w[None, :]) * w[:, None]
+
+    return Hs, Ss
