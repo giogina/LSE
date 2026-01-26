@@ -9,17 +9,17 @@ BO = False
 M = 1836.153
 
 # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
-h_max = 7
-k_max = 5
+h_max = 4
+k_max = 4
 n_max = 10
 m_max = 10 # smu only
-ij_max = 10 # stmu only
+ij_max = 10 # smu only  # todo: according to bo-scan-coeffs.ods, this needs to go higher than n,m (converges more slowly in mu)
 ab_max = 0 # rij only
-total_max = 7
-delta = 0.1
+total_max = 6
+delta = 0.1  # TODO: Try delta-sequence
 
 # label = "many-low-k-nonneg-nm-COUPLED-DIMER-R3.0"
-label = "k5h7"
+label = "k4h4-morse"
 
 # delta = 0.1: E[0] := -1.174474883468479:
 # E[0] := -1.1744788198234721 at delta=0.1, alpha=0.695
@@ -32,8 +32,14 @@ sMax = 30
 
 # coords = "rij"
 # coords = "stmu"
-coords = "s12mu" # todo: H slightly non-hermitian? How to fix that?
+coords = "s12mu_morse"
+# coords = "s12mu" # todo: H slightly non-hermitian? How to fix that?
 # TODO: octant = False gives almost exactly the same plots, but slightly less-negative energy, and less asym.
+
+# if BO:
+#     abRange, wAB = [1.4], [1.0]
+# else:
+abRange, wAB = build_rAB_grid(KR = 8, R_min=0.7, R_max=2.2, gamma = 1.0)
 
 if BO:
     M1M = 1
@@ -96,7 +102,7 @@ if coords == "rij":
     data = np.ones(len(row_idx), dtype=np.int8)
     X = csr_matrix((data, (row_idx, col_idx)), shape=(len(rows), len(sym_b)))
 
-elif coords == "stmu" or coords == "s12mu":
+elif coords == "stmu" or coords == "s12mu" or coords == "s12mu_morse":
     for h in frange(0, h_max, 1):
         for k in frange(0, k_max, 1):
             for n in frange(0, n_max, 1):
@@ -107,7 +113,7 @@ elif coords == "stmu" or coords == "s12mu":
                             if (i + j) % 2 != 0: continue  # A<->B symmetry
                             if coords == "stmu":
                                 if m % 2 != 0: continue
-                            elif coords == "s12mu":
+                            elif coords == "s12mu" or coords == "s12mu_morse":
                                 if i == j and m > n: continue # avoid duplication of (n, m, i, j=i) and (m, n, j=i, i)
                             t = h + n + m + i + j # todo: temp: + k
                             if t > total_max: continue
@@ -123,7 +129,7 @@ print(f"MatSize = {bSize}, Coords: {coords}")
 
 if coords == "stmu":
     Fij, Fji = calc_Fij_stmu(basis_idx)
-elif coords == "s12mu":
+elif coords == "s12mu" or coords == "s12mu_morse":
     Fij, Fji = calc_Fij_s12mu(basis_idx)
 elif coords == "rij":
     Fij = calc_F_rij(basis_idx)
@@ -132,12 +138,6 @@ elif coords == "rij":
 start = time.time()
 
 nrP = 0
-if BO:
-    abRange, wAB = [1.4], [1.0]
-else:
-    abRange, wAB = build_rAB_grid(KR = 10, R_min=0.9, R_max=2.0, gamma = 1.0)
-
-
 
 savefile = f"SHlayers_t{total_max}_delta{delta}{'_BO' if BO else ''}{'_'+label if label is not None else ''}_{bSize}"
 

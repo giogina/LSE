@@ -698,6 +698,176 @@ def calc_H_alphabeta_s12mu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, Minv, M1M, s1
 
     return H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_alpha2, H_alphabeta, H_beta_ij, H_beta_ji, H_beta2
 
+def calc_H_alphabeta_s12mu_morse(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, Minv, M1M, s1, s2, mu1, mu2, delta):
+
+    # rAB, s1, s2 - only primitives (scalars)
+    inv_rAB = 1.0 / rAB
+    rAB_2 = rAB * rAB
+    inv_rAB_2 = inv_rAB * inv_rAB
+    inv_s1 = 1.0 / s1
+    inv_s1_2 = inv_s1**2
+    s1_2 = s1**2
+    inv_s2 = 1.0 / s2
+    inv_s2_2 = inv_s2**2
+    s2_2 = s2**2
+
+    # e1-only primitives
+    inv_rA1 = 1.0 / rA1
+    inv_rB1 = 1.0 / rB1
+    rA1_2 = rA1 * rA1
+    rB1_2 = rB1 * rB1
+    mu1_2 = mu1**2
+    # print(sorted(np.abs(mu1))[0:10])
+    inv_mu1 = 1 / mu1
+    # print(inv_mu1)
+    inv_mu1_2 = inv_mu1 * inv_mu1
+    v1 = inv_rA1 + inv_rB1
+    cos1AB = (rA1_2 + rAB_2 - rB1_2) * inv_rA1 * inv_rAB  * 0.5
+    cos1BA = (rAB_2 + rB1_2 - rA1_2) * inv_rAB * inv_rB1  * 0.5
+    cosA1B = (rA1_2 - rAB_2 + rB1_2) * inv_rA1 * inv_rB1  * 0.5
+
+    # e2-only primitives
+    inv_rA2 = 1.0 / rA2
+    inv_rB2 = 1.0 / rB2
+    rA2_2 = rA2 * rA2
+    rB2_2 = rB2 * rB2
+    mu2_2 = mu2**2
+    inv_mu2 = 1.0 / mu2
+    inv_mu2_2 = inv_mu2 * inv_mu2
+    v2 = inv_rA2 + inv_rB2
+    cos2AB = (rA2_2 + rAB_2 - rB2_2) * inv_rA2 * inv_rAB  * 0.5
+    cos2BA = (rAB_2 + rB2_2 - rA2_2) * inv_rAB * inv_rB2  * 0.5
+    cosA2B = (rA2_2 - rAB_2 + rB2_2) * inv_rA2 * inv_rB2  * 0.5
+
+    P1 = rA1.size
+    P2 = rA2.size
+    P = P1 * P2
+
+    # expand e1
+    rA1_2 = np.repeat(rA1_2, P2)
+    rB1_2 = np.repeat(rB1_2, P2)
+    inv_rA1 = np.repeat(inv_rA1, P2)
+    inv_rB1 = np.repeat(inv_rB1, P2)
+    inv_mu1 = np.repeat(inv_mu1, P2)
+    inv_mu1_2 = np.repeat(inv_mu1_2, P2)
+    mu1_2 = np.repeat(mu1_2, P2)
+    v1 = np.repeat(v1, P2)
+    cos1AB = np.repeat(cos1AB, P2)
+    cos1BA = np.repeat(cos1BA, P2)
+    cosA1B = np.repeat(cosA1B, P2)
+
+    # expand e2
+    rA2_2 = np.tile(rA2_2, P1)
+    rB2_2 = np.tile(rB2_2, P1)
+    inv_rA2 = np.tile(inv_rA2, P1)
+    inv_rB2 = np.tile(inv_rB2, P1)
+    inv_mu2 = np.tile(inv_mu2, P1)
+    inv_mu2_2 = np.tile(inv_mu2_2, P1)
+    mu2_2 = np.tile(mu2_2, P1)
+    v2 = np.tile(v2, P1)
+    cos2AB = np.tile(cos2AB, P1)
+    cos2BA = np.tile(cos2BA, P1)
+    cosA2B = np.tile(cosA2B, P1)
+
+    inv_r12 = 1.0 / r12
+    r12_2 = r12 * r12
+    inv_r12_2 = inv_r12 * inv_r12
+
+    inv_rA1_rB1 = inv_rA1 * inv_rB1 * M1M
+    inv_rA2_rB2 = inv_rA2 * inv_rB2 * M1M
+    v12 = v1 + v2
+
+    cos12A = (r12_2 - rA1_2 + rA2_2) * inv_r12 * inv_rA2  * 0.5
+    cos12B = (r12_2 - rB1_2 + rB2_2) * inv_r12 * inv_rB2  * 0.5
+    cos1A2 = (rA1_2 + rA2_2 - r12_2) * inv_rA1 * inv_rA2  * 0.5
+    cos1B2 = (rB1_2 + rB2_2 - r12_2) * inv_rB1 * inv_rB2  * 0.5
+    cos21A = (r12_2 + rA1_2 - rA2_2) * inv_r12 * inv_rA1  * 0.5
+    cos21B = (r12_2 + rB1_2 - rB2_2) * inv_r12 * inv_rB1  * 0.5
+
+    # Recurring combinations
+    one = np.ones_like(r12)
+    zero = np.zeros_like(r12)
+    c1 = (cos1AB + cos1BA) * inv_rAB * Minv * one
+    c2 = (cos2AB + cos2BA) * inv_rAB * Minv * one
+    c3 = (cos21A + cos21B + cos12A + cos12B)
+    c4 = (cos1A2 + cos1B2) * Minv
+
+    c_n2 = -inv_s1_2 * M1M - cosA1B * inv_s1_2
+    c_n = -inv_rA1_rB1 + (cos21A + cos21B) * delta * inv_s1
+    c_m2 = -inv_s2_2 * M1M - cosA2B * inv_s2_2
+    c_m = -inv_rA2_rB2 + (cos12A + cos12B) * delta * inv_s2
+    c_k2 = -inv_r12_2 * one
+    c_k = 2 * delta * inv_r12 * one
+    c_i2 = -inv_mu1_2 * inv_rAB_2 * M1M + inv_rAB_2 * (inv_mu1 * cos1AB - inv_mu1 * cos1BA - 1) * Minv + cosA1B * inv_mu1_2 * inv_rAB_2
+    c_i = inv_mu1_2 * inv_rAB_2 * M1M + inv_rA1_rB1 + cos21A * delta * inv_mu1 * inv_rAB - cos21B * delta * inv_mu1 * inv_rAB - cosA1B * inv_mu1_2 * inv_rAB_2 + inv_rAB_2 * Minv
+    c_j2 = -inv_mu2_2 * inv_rAB_2 * M1M + inv_rAB_2 * (inv_mu2 * cos2AB - inv_mu2 * cos2BA - 1) * Minv + cosA2B * inv_mu2_2 * inv_rAB_2
+    c_j = inv_mu2_2 * inv_rAB_2 * M1M + inv_rA2_rB2 + cos12A * delta * inv_mu2 * inv_rAB - cos12B * delta * inv_mu2 * inv_rAB - cosA2B * inv_mu2_2 * inv_rAB_2 + inv_rAB_2 * Minv
+    c_h2 = -inv_rAB_2 * Minv *one
+    c_ni = inv_s1 * c1
+    c_mj = inv_s2 * c2
+    c_nj = -inv_rAB * inv_s1 * (inv_mu2 * cos1A2 - inv_mu2 * cos1B2 - cos1AB - cos1BA) * Minv
+    c_nm = -inv_s2 * c4 * inv_s1
+    c_jk = -inv_r12 * inv_rAB * (cos12A - cos12B) * inv_mu2
+    c_nh = -c_ni
+    c_ik = -inv_mu1 * inv_r12 * (cos21A - cos21B) * inv_rAB
+    c_mh = -c_mj
+    c_nk = -inv_r12 * (cos21A + cos21B) * inv_s1
+    c_mi = -inv_rAB * inv_s2 * (cos1A2 * inv_mu1 - inv_mu1 * cos1B2 - cos2AB - cos2BA) * Minv
+    c_jh = -inv_rAB_2 * (inv_mu2 * cos2AB - inv_mu2 * cos2BA - 2) * Minv
+    c_mk = -inv_r12 * (cos12A + cos12B) * inv_s2
+    c_ij = -inv_rAB_2 * (cos1A2 * inv_mu1 * inv_mu2 + cos1B2 * inv_mu1 * inv_mu2 - inv_mu1 * cos1AB + inv_mu1 * cos1BA - inv_mu2 * cos2AB + inv_mu2 * cos2BA + 2) * Minv  # todo: c4
+    c_ih = -inv_rAB_2 * (inv_mu1 * cos1AB - inv_mu1 * cos1BA - 2) * Minv
+    c_1 = -delta * (-2 * inv_r12 + delta) * one
+
+    c_alpha_1 = M1M * v12 - delta * c3
+    c_alpha_n = 2 * inv_s1 * M1M + 2 * cosA1B * inv_s1 + inv_s1 * c4
+    c_alpha_m = 2 * inv_s2 * M1M + 2 * cosA2B * inv_s2 + inv_s2 * c4
+    c_alpha_i = inv_rAB * (cos1A2 * inv_mu1 - inv_mu1 * cos1B2 - cos1AB - cos1BA - cos2AB - cos2BA) * Minv
+    c_alpha_j = inv_rAB * (inv_mu2 * cos1A2 - inv_mu2 * cos1B2 - cos1AB - cos1BA - cos2AB - cos2BA) * Minv
+    c_alpha_h = c1 + c2
+    c_alpha_k = c3 * inv_r12
+
+    # c_beta_1 = 2 * inv_rAB * Minv * one
+    # c_beta_n = inv_s1 * (cos1AB + cos1BA) * Minv
+    # c_beta_m = (cos2AB + cos2BA) * inv_s2 * Minv
+    # c_beta_i = inv_rAB * (inv_mu1 * cos1AB - inv_mu1 * cos1BA - 2) * Minv
+    # c_beta_j = inv_rAB * (inv_mu2 * cos2AB - inv_mu2 * cos2BA - 2) * Minv
+    # c_beta_h = 2 * inv_rAB * Minv * one
+
+    Req = 1.4011
+    rm = 2. * (rAB - Req) * Minv
+    rmi = (1 - Req * inv_rAB) * Minv
+    c_beta_1 = (-4. * Req * inv_rAB + 6.) * Minv * one
+    c_beta_n = inv_s1 * (cos1AB + cos1BA) * rm
+    c_beta_m = inv_s2 * (cos2AB + cos2BA) * rm
+    c_beta_i = 2. * (inv_mu1 * cos1AB - inv_mu1 * cos1BA - 2.) * rmi
+    c_beta_j = 2. * (inv_mu2 * cos2AB - inv_mu2 * cos2BA - 2.) * rmi
+    c_beta_h = 4. * rmi * one
+
+    c_alpha2_1 = -2 * M1M - (cosA1B + cosA2B) - (cos1A2 + cos1B2) * Minv
+    c_alphabeta_1 = -(cos1AB + cos1BA + cos2AB + cos2BA) * rm
+    c_beta2_1 = -4. * (Req - rAB) ** 2 * Minv
+    # c_alphabeta_1 = -(cos1BA + cos2AB + cos2BA + cos1AB) * Minv
+    # c_beta2_1 = -Minv
+
+    coef_vector_1 = np.stack([c_n2, c_n, c_k2, c_k, c_m2, c_m, c_i2, c_i, c_j2, c_j, c_h2, zero, c_ni, c_mj, c_nj, c_nm, c_jk, c_nh, c_ik, c_mh, c_nk, c_mi, c_jh, c_mk, c_ij, c_ih, c_1], axis=1)
+    coef_vector_alpha = np.stack([zero, c_alpha_n, zero, c_alpha_k, zero, c_alpha_m, zero, c_alpha_i, zero, c_alpha_j, zero, c_alpha_h, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_alpha_1], axis=1)
+    coef_vector_beta = np.stack([zero, c_beta_n, zero, zero, zero, c_beta_m, zero, c_beta_i, zero, c_beta_j, zero, c_beta_h, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_beta_1], axis=1)
+
+    potential = potential_ri_inv(inv_rAB, inv_rA1, inv_rB1, inv_rA2, inv_rB2, inv_r12)
+    H_1_ij = coef_vector_1 @ Fij + potential[:, None]
+    H_1_ji = coef_vector_1 @ Fji + potential[:, None]
+    H_alpha_ij = coef_vector_alpha @ Fij
+    H_alpha_ji = coef_vector_alpha @ Fji
+
+    H_beta_ij = coef_vector_beta @ Fij
+    H_beta_ji = coef_vector_beta @ Fji
+    H_alpha2 = c_alpha2_1[:, None]
+    H_alphabeta = c_alphabeta_1[:, None]
+    H_beta2 = c_beta2_1
+
+    return H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_alpha2, H_alphabeta, H_beta_ij, H_beta_ji, H_beta2
+
 def expand_idx(basis_idx, coords):
     h_idx = basis_idx[:, 0]
     k_idx = basis_idx[:, 1]
@@ -788,8 +958,11 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
             A_alphabeta = H_alphabeta * (B_ij + B_ji)
             # A_beta2 = H_beta2 * (B_ij + B_ji)
 
-        elif coords == "s12mu":
-            H_1_12, H_1_21, H_alpha_12, H_alpha_21, H_alpha2, H_alphabeta, H_beta_12, H_beta_21, H_beta2 = calc_H_alphabeta_s12mu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1, s2, mu1, mu2, delta)
+        elif coords == "s12mu" or coords == "s12mu_morse":
+            if coords == "s12mu":
+                H_1_12, H_1_21, H_alpha_12, H_alpha_21, H_alpha2, H_alphabeta, H_beta_12, H_beta_21, H_beta2 = calc_H_alphabeta_s12mu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1, s2, mu1, mu2, delta)
+            else:
+                H_1_12, H_1_21, H_alpha_12, H_alpha_21, H_alpha2, H_alphabeta, H_beta_12, H_beta_21, H_beta2 = calc_H_alphabeta_s12mu_morse(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1, s2, mu1, mu2, delta)
 
             mu1_p = power_table(mu1, ij_max)
             mu2_p = power_table(mu2, ij_max)
