@@ -2,7 +2,6 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib as mpl
 from matplotlib.widgets import Slider
-from scipy.linalg import eig
 
 from calc import calc_F_ee, calc_F_ne, calc_AB
 from solver import solve_HS
@@ -167,6 +166,11 @@ def plot_Psi_Eloc_by_alpha_beta(
         beta = float(beta_values[ib])
 
         E, C, cond = solve_HS(SH_layers, alpha, beta, 1e-15)
+        idx = np.argsort(np.real(E))
+        E = np.real(E[idx])
+        C = np.real(C[:, idx])
+        print(E[0])
+
 
         if only_negative_E:
             sol_idx = np.where(E < 0)[0]
@@ -255,8 +259,8 @@ def plot_Psi_Eloc_by_alpha_beta(
     ax_cusp = fig.add_subplot(1, 3, 3, projection="3d")
     fig.subplots_adjust(bottom=0.34)
 
-    ax_eloc.view_init(elev=0, azim=45)
-    ax_cusp.view_init(elev=0, azim=0)
+    ax_eloc.view_init(elev=0, azim=30)
+    ax_cusp.view_init(elev=0, azim=90)
 
     # long sliders
     ax_alpha = fig.add_axes([0.15, 0.26, 0.7, 0.035])
@@ -268,7 +272,7 @@ def plot_Psi_Eloc_by_alpha_beta(
     ax_y2 = fig.add_axes([0.41, 0.10, 0.22, 0.035])
     ax_z2 = fig.add_axes([0.67, 0.10, 0.22, 0.035])
 
-    s_alpha = Slider(ax_alpha, "alpha idx", 0, len(alpha_values)-1, valinit=116, valstep=1)
+    s_alpha = Slider(ax_alpha, "alpha idx", 0, len(alpha_values)-1, valinit=120, valstep=1)
     s_beta  = Slider(ax_beta,  "beta idx",  0, len(beta_values)-1,  valinit=0, valstep=1)
 
     # i slider max depends on alpha/beta; we rebuild bounds dynamically
@@ -369,20 +373,31 @@ def plot_Psi_Eloc_by_alpha_beta(
             cusp_ne_grid = cusp_ne.reshape(Y1.shape)
             ax_cusp.clear()
 
+            xmin, xmax = -3., 3.
+            ymin, ymax = 0.0, 1.
+
+            Zee = cusp_ee_grid.copy()
+            Zne = cusp_ne_grid.copy()
+
+            mask = (X1 < xmin) | (X1 > xmax) | (Y1 < ymin) | (Y1 > ymax)
+
+            Zee[mask] = np.nan
+            Zne[mask] = np.nan
+
             # electron–electron cusp (yellow/orange palette)
             surface_grid_colored(
-                ax_cusp, X1, Y1, cusp_ee_grid,
-                cmap_name="plasma",  # yellow–purple, very readable
-                vmin=-2.0, vmax=2.0,  # cusp residuals should be near 0
-                alpha=0.75
+                ax_cusp, X1, Y1, Zee,
+                cmap_name="plasma",
+                vmin=-2.0, vmax=2.0,
+                alpha=0.5
             )
 
             # electron–nucleus cusp (blue/green palette)
             surface_grid_colored(
-                ax_cusp, X1, Y1, cusp_ne_grid,
+                ax_cusp, X1, Y1, Zne,
                 cmap_name="viridis",
                 vmin=-2.0, vmax=2.0,
-                alpha=0.55
+                alpha=0.5
             )
 
             # ax_cusp.set_zlim(-2.0, 2.0)
@@ -407,7 +422,7 @@ def plot_Psi_Eloc_by_alpha_beta(
         ax_eloc.scatter([geom["x2"]], [geom["y2"]], [zmax2], c=["orange"], s=160, depthshade=False)
         ax_cusp.set_xlim(-3.0, 3.0)
         ax_cusp.set_ylim(0.0, 3.0)
-        ax_cusp.set_zlim(-0.1, 0.1)
+        ax_cusp.set_zlim(-0.03, 0.03)
 
         ax_phi.set_title(
             f"ψ | alpha={alpha:.6f} beta={beta:.6f} cond(S)={cache_entry['condS']:.3e}\n"

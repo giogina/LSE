@@ -148,51 +148,6 @@ def split_s(s, rAB, Ku, gamma=6.0, eta_end=0.5, end_mode="both"):
 
     return s1, s2, w_split
 
-#
-# def split_s(s, rAB, Ku, gamma = 6.0):
-#     """
-#     Deterministic split of total s into s1,s2.
-#     s1 ∈ [rAB, s-rAB], s2 = s - s1.
-#     rAB is the full internuclear distance R.
-#     """
-#     if gamma < 1.0:
-#         raise ValueError("gamma must be >= 1.0")
-#
-#     # Gauss-Legendre on [-1,1]
-#     x, w = leggauss(Ku)
-#
-#     xg = np.sign(x) * np.abs(x)**gamma  # Power-around-center on [-1,1]
-#
-#     if gamma == 1.0:   # Jacobian dxg/dx
-#         J = np.ones_like(x)
-#     else:
-#         J = gamma * np.abs(x)**(gamma - 1.0)
-#
-#     u = 0.5 * (xg + 1.0)  # Map to u ∈ [0,1]
-#     span = s - 2.0 * rAB
-#     s1 = rAB + u * span
-#     s2 = s - s1
-#     w_split = 0.5 * w * J * span
-#
-#     return s1, s2, w_split
-#
-# def split_s_old(s, rAB, Ku):
-#     """
-#     Deterministic split of total s into s1,s2.
-#     s1 ∈ [rAB, s-rAB], s2 = s - s1.
-#     rAB is the full internuclear distance R.
-#     """
-#     x, w = leggauss(Ku)       # nodes in [-1,1]
-#     u = 0.5 * (x + 1.0)       # map to [0,1]
-#     wu = 0.5 * w              # du weights on [0,1]
-#
-#     # Map u -> s1 in [rAB, s-rAB]
-#     s1 = rAB + u * (s - 2.0*rAB)
-#     s2 = s - s1
-#     w_split = (s - 2.0*rAB) * wu
-#
-#     return s1, s2, w_split
-
 def shell_area_weight(s1, s2, rAB):
     shell_area_1 = 4*np.pi*((s1 / rAB)**2 - 1/3)
     shell_area_2 = 4*np.pi*((s2 / rAB)**2 - 1/3)

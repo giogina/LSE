@@ -1,7 +1,5 @@
 import numpy as np
 from scipy.linalg import eig, eigh
-from calc import diag_rescale_generalized
-
 
 def rel_asym(A):
     nrm = np.linalg.norm(A)
@@ -30,6 +28,33 @@ def assemble_HS(SH_layers, alpha, beta, debug = False):
         print("H asym rel:", rel_asym(H))
         print("S asym rel:", rel_asym(S))
     return H, S
+
+
+def diag_rescale_generalized(H, S, eps=1e-300):
+    """
+    Diagonal re-weighting (NOT whitening):
+        W = diag(1/sqrt(diag(S)))
+        S' = W S W
+        H' = W H W
+
+    Returns: Hs, Ss, W (as 1D vector of diagonal entries), d (diag(S))
+    """
+
+    d = np.diag(S).copy()
+
+    # guard against zeros/negatives on the diagonal (shouldn't happen, but can numerically)
+    if np.any(d <= 0):
+        bad = np.where(d <= 0)[0][:10]
+        raise ValueError(f"Non-positive diagonal entries in S at indices {bad}. "
+                         f"Min diag(S)={d.min():.3e}. Fix basis / integration / symmetrize S first.")
+
+    w = 1.0 / np.sqrt(np.maximum(d, eps))   # vector of W diagonal entries
+
+    # Diagonal scaling without forming W explicitly  ( (W S W)_{ij} = w_i * S_{ij} * w_j )
+    Ss = (S * w[None, :]) * w[:, None]
+    Hs = (H * w[None, :]) * w[:, None]
+
+    return Hs, Ss, w
 
 def reduce_by_overlap(S, rcond=1e-12):
     S = 0.5*(S + S.T)
@@ -67,19 +92,17 @@ def cond(S):
     cond = float(eigS.max() / np.abs(eigS).min())
     return cond
 
-
-def solve_HS(layers, alpha, beta, rcond = 1e-16):   # alpha = 0.98
+def solve_HS(layers, alpha, beta, rcond = 1e-15):   # alpha = 0.98
 
     H, S = assemble_HS(layers, alpha, beta) # todo: how come the min-eigS changes so much with alpha? Tiny function?
-    H, S = diag_rescale_generalized(H, S)
-    # print(sensitivity_test(H, S))
+    H, S, q = diag_rescale_generalized(H, S)
 
     X, keep, w = reduce_by_overlap(S, rcond)
     print(f"{int(np.count_nonzero(keep) / len(keep) * 100)}% of dimensions ({np.count_nonzero(keep)} functions) kept")
 
     Hp = X.T @ H @ X
     E, Y = eig(Hp)
-    C = X @ Y
+    C = q[:, None] * (X @ Y)
 
     return np.real(E), np.real(C), cond(S)
 

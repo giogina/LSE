@@ -7,6 +7,63 @@ def potential_ri(rAB, rA1, rB1, rA2, rB2, r12):
 def potential_ri_inv(rAB_inv, rA1_inv, rB1_inv, rA2_inv, rB2_inv, r12_inv):  # For cases when the inv's are pre-computed
     return rAB_inv + r12_inv - rA1_inv - rB1_inv - rA2_inv - rB2_inv
 
+def intramolecular_potential_fully_synced(x1, y1, x2, y2, z2, rAB, R):
+    # Molecule I: e1, e2 at given Cartesian coordinates, nuclei at (+/- rAB/2, 0, 0)
+    # Molecule II: nuclei at (+/- rAB/2, R*cos(rho), R*sin(rho))
+    # eII1 at (x1, R*cos(rho) + y1, R*sin(rho) + z1)
+    # eII2 at (x2, R*cos(rho) + y2, R*sin(rho) + z2)
+
+    nIA_pos = (-0.5 * rAB, 0., 0.)
+    nIB_pos = ( 0.5 * rAB, 0., 0.)
+    eI1_pos = (x1[:, None], y1[:, None], 0.)  # + z1, but z1=0
+    eI2_pos = (x2[None, :], y2[None, :], z2[None, :])
+
+    r2 = np.sqrt(y2**2+z2**2)
+    phi1 = 0
+    phi2 = np.arcsin(z2/r2)
+
+    #?
+    # rho=0 (I-II along y): x to -x, y to y, z to -z
+    # rho = np.pi/2 (along z): x to -x, y to -y, z to z
+    # rho = np.pi/4 (diagonal): x to -x,
+
+    # Todo: instead? rotate molecule I (to even out sampling), keep mol 2 position fixed
+
+    V = np.zeros((len(x1), len(x2)))
+    V += 2. / R  # (nIA - nIIA) + (nIB - nIIB)
+    V += 2. / np.sqrt(rAB**2 + R**2)  # (nIA - nIIB) + (nIIA - nII)
+
+    nrRho = 25 # average around nrRho positions around molecule I
+    for rho in np.arange(0, 2*np.pi, 2*np.pi/nrRho):
+
+        # Positions of electrons in molecule II
+        nIIA_pos = (-0.5*rAB, R * np.cos(rho), R * np.sin(rho))
+        nIIB_pos = ( 0.5*rAB, R * np.cos(rho), R * np.sin(rho))
+        eII1_pos = (-x1[:, None], R * np.cos(rho) + y1[:, None], R * np.sin(rho)) # + z1, but z1=0
+        eII2_pos = (-x2[None, :], R * np.cos(rho) + y2[None, :], R * np.sin(rho) + z2[None, :])
+
+
+        def dist(xyz1, xyz2):
+            return np.sqrt((xyz1[0] - xyz2[0])**2 + (xyz1[1] - xyz2[1])**2 + (xyz1[2] - xyz2[2])**2)
+
+        V += 1. / nrRho / dist(eI1_pos, eII1_pos)  # eI1 - eII1
+        V += 1. / nrRho / dist(eI2_pos, eII2_pos)  # eI2 - eII2
+        V += 1. / nrRho / dist(eI1_pos, eII2_pos)  # eI1 - eII2
+        V += 1. / nrRho / dist(eI2_pos, eII1_pos)  # eI2 - eII1
+
+        V -= 1. / nrRho / dist(eI1_pos, nIIA_pos)
+        V -= 1. / nrRho / dist(eI1_pos, nIIB_pos)
+        V -= 1. / nrRho / dist(nIA_pos, eII1_pos)
+        V -= 1. / nrRho / dist(nIB_pos, eII1_pos)
+        V -= 1. / nrRho / dist(eI2_pos, nIIA_pos)
+        V -= 1. / nrRho / dist(eI2_pos, nIIB_pos)
+        V -= 1. / nrRho / dist(nIA_pos, eII2_pos)
+        V -= 1. / nrRho / dist(nIB_pos, eII2_pos)
+
+    V = 0.5*V.ravel()
+    print(np.min(V), np.max(V))
+    return V  # only half of the interaction belongs to this molecule
+
 
 def power_table(x, p_max, p_min=0):
     x = np.asarray(x, dtype=np.float64)
@@ -46,7 +103,7 @@ def calc_F_rij(basis_idx):
 def calc_Fij_s12mu(basis_idx):
 
     h, k, n, m, i, j, _, _ = expand_idx(basis_idx.astype(np.float64), "s12mu")
-    Fij = np.stack([n*n - n, n, k*k + k, k, m*m - m, m, i*i, i, j*j, j, h*h + h, h, n*i, m*j, n*j, n*m, j*k, n*h, i*k, m*h, n*k, m*i, j*h, m*k, i*j, i*h, np.ones_like(n)], axis=0) # todo: should it be ones at the end?
+    Fij = np.stack([n*n - n, n, k*k + k, k, m*m - m, m, i*i, i, j*j, j, h*h + h, h, n*i, m*j, n*j, n*m, j*k, n*h, i*k, m*h, n*k, m*i, j*h, m*k, i*j, i*h, np.ones_like(n)], axis=0)
 
     h, k, m, n, j, i, _, _ = expand_idx(basis_idx.astype(np.float64), "s12mu")  # switch 1 <-> 2
     Fji = np.stack([n*n - n, n, k*k + k, k, m*m - m, m, i*i, i, j*j, j, h*h + h, h, n*i, m*j, n*j, n*m, j*k, n*h, i*k, m*h, n*k, m*i, j*h, m*k, i*j, i*h, np.ones_like(n)], axis=0)
@@ -632,11 +689,7 @@ def calc_H_alphabeta_s12mu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, Minv, M1M, s1
     H_1_ji = coef_vector_1 @ Fji + potential[:, None]
     H_alpha_ij = coef_vector_alpha @ Fij
     H_alpha_ji = coef_vector_alpha @ Fji
-    # print("~")
-    #
-    # print(inv_r12)
-    # print(H_alpha_ij)
-    # print(H_alpha_ji) # same, [0, 0, c_alpha_k = inv_r12]
+
     H_beta_ij = coef_vector_beta @ Fij
     H_beta_ji = coef_vector_beta @ Fji
     H_alpha2 = c_alpha2_1[:, None]
@@ -687,6 +740,8 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
         dy = y1[:, None] - y2[None, :]
         dz = 0.0 - z2[None, :]
         r12 = np.sqrt(dx * dx + dy * dy + dz * dz).ravel()  # vector of r12 values for all e1, e2 positions
+
+        # print(s1, s2, r12.min())
 
         # r12 = np.maximum(r12, 10 ** (-14))
         r12_p = power_table(r12, k_max)
@@ -761,8 +816,8 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
 
             B = B_12 + B_21  # 3xP, small entries weight*
 
-
             A_1 = H_1_12 * B_12 + H_1_21 * B_21
+            # A_1 += B * intramolecular_potential_fully_synced(x1, y1, x2, y2, z2, rAB, 3.0)[:, None] # TODO: TESTING!
             A_alpha = H_alpha_12 * B_12 + H_alpha_21 * B_21  # B * [0, 0, 1/r12] - why not identical??
             A_beta = H_beta_12 * B_12 + H_beta_21 * B_21
             A_alpha2 = H_alpha2 * B
@@ -808,8 +863,7 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
             A_alphabeta = H_alphabeta * B
             A_beta = H_beta * B
 
-            # Apply linear combinations to assemble symmetric basis
-            # B, A_1, A_alpha, A_alpha2, A_alphabeta, A_beta, A_beta2 = combine_fcts(B, A_1, A_alpha, A_alpha2, A_alphabeta, A_beta, A_beta2, groups)
+            # Assemble symmetric basis
             B = B @ X
             A_1 = A_1 @ X
             A_alpha = A_alpha @ X
@@ -817,9 +871,6 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
             A_alphabeta = A_alphabeta @ X
             A_beta = A_beta @ X
             # A_beta2 = A_beta2 @ X
-
-        # if abs(s2-plot_s2_target) < 1e-8:
-        #     plot_chunks = update_plot_chunks(plot_chunks, mu2, B, P1, P2, x1, y1, phi2, plot_phi_target, A_1, A_alpha, A_alpha2, A_alphabeta, A_beta, A_beta2)
 
 
         return B, A_1, A_alpha, A_beta, A_alphabeta, A_alpha2, P
@@ -945,29 +996,3 @@ def calc_F_ee(x1, y1, rAB, coords, basis_idx, delta, X = None):
 
     return B, F_ee
 
-
-def diag_rescale_generalized(H, S, eps=1e-300):
-    """
-    Diagonal re-weighting (NOT whitening):
-        W = diag(1/sqrt(diag(S)))
-        S' = W S W
-        H' = W H W
-
-    Returns: Hs, Ss, W (as 1D vector of diagonal entries), d (diag(S))
-    """
-
-    d = np.diag(S).copy()
-
-    # guard against zeros/negatives on the diagonal (shouldn't happen, but can numerically)
-    if np.any(d <= 0):
-        bad = np.where(d <= 0)[0][:10]
-        raise ValueError(f"Non-positive diagonal entries in S at indices {bad}. "
-                         f"Min diag(S)={d.min():.3e}. Fix basis / integration / symmetrize S first.")
-
-    w = 1.0 / np.sqrt(np.maximum(d, eps))   # vector of W diagonal entries
-
-    # Diagonal scaling without forming W explicitly  ( (W S W)_{ij} = w_i * S_{ij} * w_j )
-    Ss = (S * w[None, :]) * w[:, None]
-    Hs = (H * w[None, :]) * w[:, None]
-
-    return Hs, Ss
