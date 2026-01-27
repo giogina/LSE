@@ -344,13 +344,13 @@ def calc_H_alphabeta_stmu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1
         tmp = coef_vector_alphadelta * delta @ Fij
         H_alpha_ij += tmp
         H_alpha_ji += tmp
-    H_alpha2 = coef_vector_alpha2 @ Fij
-    H_alphabeta = coef_vector_alphabeta @ Fij
+    # H_alpha2 = coef_vector_alpha2 @ Fij
+    # H_alphabeta = coef_vector_alphabeta @ Fij
     H_beta_ij = coef_vector_beta @ Fij
     H_beta_ji = coef_vector_beta @ Fji
-    H_beta2 = coef_vector_beta2 @ Fij
+    # H_beta2 = coef_vector_beta2 @ Fij
 
-    return H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_alpha2, H_alphabeta, H_beta_ij, H_beta_ji, H_beta2
+    return H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_beta_ij, H_beta_ji, c_alpha2_1, c_alphabeta_1, c_beta2_1
 
 def calc_H_alphabeta_rij(F, rAB, rA1, rB1, rA2, rB2, r12, Minv, M1M, delta):
 
@@ -512,33 +512,21 @@ def calc_H_alphabeta_rij(F, rAB, rA1, rB1, rA2, rB2, r12, Minv, M1M, delta):
     c_beta_b = -cos1BA * rB1_over_rB_2 - cos2BA * rB2_over_rB_2
     c_beta_1 = 2.0 * inv_rAB * Minv * np.ones_like(c_n)
 
-    c_beta2_1 = -Minv * np.ones_like(c_n)
+    c_beta2_1 = -Minv
 
     coef_vector_alpha = np.stack(
         [zero, c_alpha_n, zero, zero, zero, zero, c_alpha_m, zero, zero, zero, c_alpha_i, zero, zero, zero, zero, c_alpha_j, zero, zero, zero, c_alpha_h, zero, c_alpha_k, zero, zero, c_alpha_1,
          zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_alpha_a, zero, c_alpha_b], axis=1)
-    coef_vector_alpha2 = np.stack(
-        [zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_alpha2_1,
-         zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero], axis=1)
-    coef_vector_alphabeta = np.stack(
-        [zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_alphabeta_1,
-         zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero], axis=1)
     coef_vector_beta = np.stack(
         [zero, c_beta_n, zero, zero, zero, zero, c_beta_m, zero, zero, zero, c_beta_i, zero, zero, zero, zero, c_beta_j, zero, zero, zero, c_beta_h, zero, zero, zero, zero, c_beta_1,
          zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_beta_a, zero, c_beta_b], axis=1)
-    coef_vector_beta2 = np.stack(
-        [zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_beta2_1,
-         zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero], axis=1)
 
     potential = potential_ri(rAB, rA1, rB1, rA2, rB2, r12)
     H_1 = coef_vector_1 @ F + potential[:, None]
     H_alpha = coef_vector_alpha @ F
-    H_alpha2 = coef_vector_alpha2 @ F
-    H_alphabeta = coef_vector_alphabeta @ F
     H_beta = coef_vector_beta @ F
-    H_beta2 = coef_vector_beta2 @ F
 
-    return H_1, H_alpha, H_alpha2, H_alphabeta, H_beta, H_beta2, inv_rA, inv_rB
+    return H_1, H_alpha, H_beta, c_alpha2_1, c_alphabeta_1, c_beta2_1, inv_rA, inv_rB
 
 def calc_H_alphabeta_s12mu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, Minv, M1M, s1, s2, mu1, mu2, delta):
 
@@ -696,7 +684,7 @@ def calc_H_alphabeta_s12mu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, Minv, M1M, s1
     H_alphabeta = c_alphabeta_1[:, None]
     H_beta2 = c_beta2_1
 
-    return H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_alpha2, H_alphabeta, H_beta_ij, H_beta_ji, H_beta2
+    return H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_beta_ij, H_beta_ji, c_alpha2_1, c_alphabeta_1, c_beta2_1
 
 def calc_H_alphabeta_s12mu_morse(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, Minv, M1M, s1, s2, mu1, mu2, delta):
 
@@ -862,11 +850,11 @@ def calc_H_alphabeta_s12mu_morse(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, Minv, M
 
     H_beta_ij = coef_vector_beta @ Fij
     H_beta_ji = coef_vector_beta @ Fji
-    H_alpha2 = c_alpha2_1[:, None]
-    H_alphabeta = c_alphabeta_1[:, None]
-    H_beta2 = c_beta2_1
+    # H_alpha2 = c_alpha2_1[:, None]
+    # H_alphabeta = c_alphabeta_1[:, None]
+    # H_beta2 = c_beta2_1
 
-    return H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_alpha2, H_alphabeta, H_beta_ij, H_beta_ji, H_beta2
+    return H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_beta_ij, H_beta_ji, c_alpha2_1, c_alphabeta_1, c_beta2_1
 
 def expand_idx(basis_idx, coords):
     h_idx = basis_idx[:, 0]
@@ -921,7 +909,7 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
         P = P1 * P2
 
         if coords == "stmu":
-            H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_alpha2, H_alphabeta, H_beta_ij, H_beta_ji, H_beta2 = calc_H_alphabeta_stmu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1, s2, s, mu1, mu2, delta)
+            H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_beta_ij, H_beta_ji, c_alpha2, c_alphabeta, c_beta2 = calc_H_alphabeta_stmu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1, s2, s, mu1, mu2, delta)
             mu1_p = power_table(mu1, ij_max)
             mu2_p = power_table(mu2, ij_max)
             mu1_p = np.repeat(mu1_p, P2, axis=0)  # shape (P, Npow)  # Tile/repeat single-electron arrays to match the entire sample point array
@@ -954,15 +942,15 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
             A_1 = H_1_ij * B_ij + H_1_ji * B_ji
             A_alpha = H_alpha_ij * B_ij + H_alpha_ji * B_ji
             A_beta = H_beta_ij * B_ij + H_beta_ji * B_ji
-            A_alpha2 = H_alpha2 * (B_ij + B_ji)
-            A_alphabeta = H_alphabeta * (B_ij + B_ji)
+            # A_alpha2 = H_alpha2 * (B_ij + B_ji)
+            # A_alphabeta = H_alphabeta * (B_ij + B_ji)
             # A_beta2 = H_beta2 * (B_ij + B_ji)
 
         elif coords == "s12mu" or coords == "s12mu_morse":
             if coords == "s12mu":
-                H_1_12, H_1_21, H_alpha_12, H_alpha_21, H_alpha2, H_alphabeta, H_beta_12, H_beta_21, H_beta2 = calc_H_alphabeta_s12mu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1, s2, mu1, mu2, delta)
+                H_1_12, H_1_21, H_alpha_12, H_alpha_21, H_beta_12, H_beta_21, c_alpha2, c_alphabeta, c_beta2 = calc_H_alphabeta_s12mu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1, s2, mu1, mu2, delta)
             else:
-                H_1_12, H_1_21, H_alpha_12, H_alpha_21, H_alpha2, H_alphabeta, H_beta_12, H_beta_21, H_beta2 = calc_H_alphabeta_s12mu_morse(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1, s2, mu1, mu2, delta)
+                H_1_12, H_1_21, H_alpha_12, H_alpha_21, H_beta_12, H_beta_21, c_alpha2, c_alphabeta, c_beta2 = calc_H_alphabeta_s12mu_morse(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1, s2, mu1, mu2, delta)
 
             mu1_p = power_table(mu1, ij_max)
             mu2_p = power_table(mu2, ij_max)
@@ -993,15 +981,15 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
             # A_1 += B * intramolecular_potential_fully_synced(x1, y1, x2, y2, z2, rAB, 3.0)[:, None] # TODO: TESTING!
             A_alpha = H_alpha_12 * B_12 + H_alpha_21 * B_21  # B * [0, 0, 1/r12] - why not identical??
             A_beta = H_beta_12 * B_12 + H_beta_21 * B_21
-            A_alpha2 = H_alpha2 * B
-            A_alphabeta = H_alphabeta * B
+            # A_alpha2 = H_alpha2 * B
+            # A_alphabeta = H_alphabeta * B
             # A_beta2 = H_beta2 * B
             # print(B)
             # print(A_alpha) # [0, 0, B[0]]
             # B.T @ A_alpha = [0, 0, B[0]^2], [0, 0, B[0]*B[1]]
 
         elif coords == "rij":
-            H_1, H_alpha, H_alpha2, H_alphabeta, H_beta, H_beta2, inv_rA, inv_rB = calc_H_alphabeta_rij(Fij, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, delta)
+            H_1, H_alpha, H_beta, c_alpha2, c_alphabeta, c_beta2, inv_rA, inv_rB = calc_H_alphabeta_rij(Fij, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, delta)
 
             rA1_p = power_table(rA1, n_max)
             rB1_p = power_table(rB1, n_max)
@@ -1040,13 +1028,12 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
             B = B @ X
             A_1 = A_1 @ X
             A_alpha = A_alpha @ X
-            A_alpha2 = A_alpha2 @ X
-            A_alphabeta = A_alphabeta @ X
             A_beta = A_beta @ X
+            # A_alpha2 = A_alpha2 @ X
+            # A_alphabeta = A_alphabeta @ X
             # A_beta2 = A_beta2 @ X
 
-
-        return B, A_1, A_alpha, A_beta, A_alphabeta, A_alpha2, P
+        return B, A_1, A_alpha, A_beta, c_alpha2, c_alphabeta, c_beta2, P
 
 
 def calc_F_ne(x1, y1, rAB, coords, basis_idx, X = None):

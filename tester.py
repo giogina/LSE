@@ -13,8 +13,9 @@ from plot import plot_Psi_Eloc_by_alpha_beta
 # file = "SHlayers_t9_delta0.0_BO_many-low-k_1140.pkl"
 # file = "SHlayers_t6_delta0.1_BO_many-low-k-nonneg-nm-COUPLED-DIMER-R12.0_360.pkl" # worse ee, better ne as above
 # file = "SHlayers_t7_delta0.1_k5h7_1368_*.pkl"
-file = "SHlayers_t7_delta0.1_BO_k5h7-BOscan_540_1.9856485906844448.pkl"
-plotrAB = 1.9856485906844448
+# file = "SHlayers_t7_delta0.1_BO_k5h7-BOscan_540_1.9856485906844448.pkl"
+file = "SHlayers_t6_delta0.1_k4h4-morse_675_*.pkl"
+plotrAB = 1.4
 
 if "*" in file:
     layers = {}
@@ -39,6 +40,8 @@ else:
     with open(file, "rb") as f:
         layers = pickle.load(f)
     meta = layers["meta"]
+
+print(meta["coords"])
 
 # for bb in meta["basis_idx"]:
 #     print(bb)
