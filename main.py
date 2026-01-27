@@ -183,7 +183,7 @@ for kab, rAB in enumerate(abRange):
             x1, y1, _, mu1, _, w1 = sample_s_shell(rAB, s1, Nphi=2, nMu=2*nMu)  # sample electron 1 on its s1-shell (x-y plane only)
             x2, y2, z2, mu2, _, w2 = sample_s_shell(rAB, s2, octant=True, nMu=nMu, Nphi=nrPhi, s1=s1)   # sample electron 2 on its s2-shell (octant x,y,z>0)
 
-            B, A_1, A_alpha, A_beta, c_alpha2, c_alphabeta, c_beta2, P = calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, wAB[kab] * sW[ks] * splitW[j], coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X)
+            B, A_1, A_alpha, A_beta, A_alpha2, A_alphabeta, c_beta2, P = calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, wAB[kab] * sW[ks] * splitW[j], coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X)
 
             B = np.asfortranarray(B)
             BT = np.asfortranarray(B.T)
@@ -196,9 +196,9 @@ for kab, rAB in enumerate(abRange):
             Hl_1 += BT @ A_1
             Hl_alpha += BT @ A_alpha
             Hl_beta += BT @ A_beta
-            Hl_alpha2 += Sp * c_alpha2  # These three are just scalars -> avoid redoing the full @ operation
-            Hl_alphabeta += Sp * c_alphabeta
-            Hl_beta2 += Sp * c_beta2
+            Hl_alpha2 += BT @ A_alpha2
+            Hl_alphabeta += BT @ A_alphabeta
+            Hl_beta2 += Sp * c_beta2  # H_beta2 is just a scalar -Minv -> avoid redoing the @
 
             nrP += P
 
@@ -215,7 +215,7 @@ for kab, rAB in enumerate(abRange):
     with open(savefile+f"_{rAB}.pkl", "wb") as f:
         pickle.dump(layers, f, protocol=pickle.HIGHEST_PROTOCOL)
 
-# Only works
+# Only works here when collecting S, H on outer loop (use tester otherwise)
 # plot_Psi_Eloc_by_alpha_beta(
 #
 #     # plot grid (electron 1)
