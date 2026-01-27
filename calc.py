@@ -991,9 +991,6 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
             A_alpha2 = H_alpha2 * B
             A_alphabeta = H_alphabeta * B
             # A_beta2 = H_beta2 * B
-            # print(B)
-            # print(A_alpha) # [0, 0, B[0]]
-            # B.T @ A_alpha = [0, 0, B[0]^2], [0, 0, B[0]*B[1]]
 
         elif coords == "rij":
             H_1, H_alpha, H_beta, H_alpha2, H_alphabeta, c_beta2, inv_rA, inv_rB = calc_H_alphabeta_rij(Fij, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, delta)

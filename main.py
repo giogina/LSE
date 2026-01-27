@@ -5,24 +5,20 @@ from calc import *
 from sampling import *
 import pickle
 
-BO = False
+BO = True
 M = 1836.153
 
 # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
 h_max = 4
 k_max = 4
-n_max = 10
-m_max = 10 # smu only
+n_max = 4
+m_max = 4 # smu only
 ij_max = 10 # smu only  # todo: according to bo-scan-coeffs.ods, this needs to go higher than n,m (converges more slowly in mu)
 ab_max = 0 # rij only
-total_max = 6
+total_max = 10
 delta = 0.1  # TODO: Try delta-sequence
 
-# label = "many-low-k-nonneg-nm-COUPLED-DIMER-R3.0"
-label = "k4h4-morse"
-
-# delta = 0.1: E[0] := -1.174474883468479:
-# E[0] := -1.1744788198234721 at delta=0.1, alpha=0.695
+label = "mu_fit"
 
 nMu = 16  # todo: test effect of these values on solution quality
 nrPhi = 12
@@ -36,10 +32,9 @@ coords = "s12mu_morse" # TODO: Morse solution somehow way worse? Why?
 # coords = "s12mu" # todo: H slightly non-hermitian? How to fix that?
 # TODO: octant = False gives almost exactly the same plots, but slightly less-negative energy, and less asym.
 
-# if BO:
-#     abRange, wAB = [1.4], [1.0]
-# else:
-abRange, wAB = build_rAB_grid(KR = 8, R_min=0.7, R_max=2.2, gamma = 1.0)
+abRange, wAB = [1.4], [1.0]
+
+# abRange, wAB = build_rAB_grid(KR = 8, R_min=0.7, R_max=2.2, gamma = 1.0)
 
 if BO:
     M1M = 1

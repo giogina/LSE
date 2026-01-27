@@ -209,7 +209,7 @@ def plot_Psi_Eloc_by_alpha_beta(
         s = s1 + s2
         w2 = np.ones_like(x2)
 
-        B, A1, Aa, Ab, Aab, Aa2, P = calc_AB(
+        B, A1, Aa, Ab, Aa2, Aab, c_beta2, P = calc_AB(
             x1_flat, y1_flat,
             x2, y2, z2,
             rAB,
@@ -227,7 +227,7 @@ def plot_Psi_Eloc_by_alpha_beta(
             raise ValueError(
                 f"calc_AB returned {B.shape[0]} rows, expected {P1}. Check s/mu broadcasting inside calc_AB.")
 
-        Ab2 = (-M_inv) * B
+        Ab2 = c_beta2 * B
 
         entry = {
             "x2": key[0], "y2": key[1], "z2": key[2],

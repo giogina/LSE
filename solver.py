@@ -97,7 +97,7 @@ def cond(S):
 
 def solve_HS(layers, alpha, beta, rcond = 1e-15, coords="s12mu"):   # alpha = 0.98
 
-    H, S = assemble_HS(layers, alpha, beta, coords) # todo: how come the min-eigS changes so much with alpha? Tiny function?
+    H, S = assemble_HS(layers, alpha, beta, coords=coords) # todo: how come the min-eigS changes so much with alpha? Tiny function?
     H, S, q = diag_rescale_generalized(H, S)
 
     X, keep, w = reduce_by_overlap(S, rcond)
