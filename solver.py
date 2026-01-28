@@ -12,10 +12,10 @@ def assemble_HS(SH_layers, alpha, beta, debug = False, coords="s12mu"):
     H = np.zeros_like(S, dtype=np.float64)
 
     for (rAB0, s0), Sl in SH_layers["S"].items():
-        if coords in ["ri", "stmu", "s12mu"]:
-            exps = np.exp(-2 * alpha * s0 - 2 * beta * rAB0)
-        elif coords == "s12mu_morse":
+        if coords.endswith("_morse"):
             exps = np.exp(-2 * alpha * s0 - 2 * beta * (rAB0-1.4011)**2)
+        else:
+            exps = np.exp(-2 * alpha * s0 - 2 * beta * rAB0)
 
         S += Sl * exps
         Hl = np.zeros_like(H)
@@ -59,6 +59,37 @@ def diag_rescale_generalized(H, S, eps=1e-300):
 
     return Hs, Ss, w
 
+def print_near_deps_from_S(S, basis_idx, eig_abs_cut=1e-15, topk=20, max_sets=20):
+    """
+    Print near-linear dependencies inferred from eigenvectors of S
+    with |eigenvalue| < eig_abs_cut.
+
+    For each such eigenvector, print the top-k largest absolute coefficients
+    and the corresponding basis_idx entries.
+    """
+    Ssym = 0.5 * (S + S.T)
+    w, U = np.linalg.eigh(Ssym)   # ascending
+
+    tiny_ids = np.where(np.abs(w) < eig_abs_cut)[0]
+    print(f"[deps] dim={S.shape[0]}  |eig|<{eig_abs_cut:g}: {len(tiny_ids)}")
+
+    if len(tiny_ids) == 0:
+        return
+
+    for rank, k in enumerate(tiny_ids[:max_sets]):
+        uk = U[:, k]
+        ak = np.abs(uk)
+
+        idx = np.argsort(-ak)[:topk]
+
+        print(f"\n[deps #{rank}] eig={w[k]: .3e}")
+        for i in idx:
+            print(
+                f"  i={i:4d}  coef={uk[i]: .3e}  |coef|={ak[i]:.3e}  "
+                f"basis_idx={basis_idx[i]}"
+            )
+
+
 def reduce_by_overlap(S, rcond=1e-12):
     S = 0.5*(S + S.T)
     w, U = eigh(S)                      # ascending
@@ -95,10 +126,12 @@ def cond(S):
     cond = float(eigS.max() / np.abs(eigS).min())
     return cond
 
-def solve_HS(layers, alpha, beta, rcond = 1e-15, coords="s12mu"):   # alpha = 0.98
+def solve_HS(layers, alpha, beta, basis_idx, rcond = 1e-15, coords="s12mu"):   # alpha = 0.98
 
     H, S = assemble_HS(layers, alpha, beta, coords=coords) # todo: how come the min-eigS changes so much with alpha? Tiny function?
     H, S, q = diag_rescale_generalized(H, S)
+    # print_near_deps_from_S(S, basis_idx)
+    # print(S)
 
     X, keep, w = reduce_by_overlap(S, rcond)
     print(f"{int(np.count_nonzero(keep) / len(keep) * 100)}% of dimensions ({np.count_nonzero(keep)} functions) kept")

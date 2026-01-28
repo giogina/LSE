@@ -9,16 +9,18 @@ BO = True
 M = 1836.153
 
 # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
-h_max = 4
+h_max = 3 # Even 2 should be pretty accurate
 k_max = 4
-n_max = 4
-m_max = 4 # smu only
-ij_max = 10 # smu only  # todo: according to bo-scan-coeffs.ods, this needs to go higher than n,m (converges more slowly in mu)
+n_max = 8
+m_max = 8 # smu only
+ij_max = 3 # smu only  # todo: according to bo-scan-coeffs.ods, this needs to go higher than n,m (converges more slowly in mu)
 ab_max = 0 # rij only
-total_max = 10
-delta = 0.1  # TODO: Try delta-sequence
+total_max = 5
+delta = 0.1  # TODO: Try delta-sequence instead of r12-poly
 
-label = "mu_fit"
+# todo; test non bo calc is ready - check it
+
+label = "s12uv-ij3"
 
 nMu = 16  # todo: test effect of these values on solution quality
 nrPhi = 12
@@ -28,12 +30,13 @@ sMax = 30
 
 # coords = "rij"
 # coords = "stmu"
-coords = "s12mu_morse" # TODO: Morse solution somehow way worse? Why?
+# coords = "s12mu_morse"
 # coords = "s12mu" # todo: H slightly non-hermitian? How to fix that?
+coords = "s12uv_morse"
+
 # TODO: octant = False gives almost exactly the same plots, but slightly less-negative energy, and less asym.
 
 abRange, wAB = [1.4], [1.0]
-
 # abRange, wAB = build_rAB_grid(KR = 8, R_min=0.7, R_max=2.2, gamma = 1.0)
 
 if BO:
@@ -116,19 +119,25 @@ elif coords == "stmu" or coords == "s12mu" or coords == "s12mu_morse":
                             # rows.append((h, k, n-i, m-j, i, j))
                             rows.append((h, k, n, m, i, j))
 
+elif coords == "s12uv_morse":
+    for h in frange(0, h_max, 1):
+        for k in frange(0, k_max, 1):
+            for n in frange(0, n_max, 1):
+                for m in frange(0, n, 1):  # careful: Whenever using negative indices, adjust power_table call accordingly.
+                    for i in frange(0, ij_max, 1): # Automatically symmetric in A-B and 1-2 due to cos() def
+                        for j in frange(0, ij_max, 1):
+                            t = h + n + m + i + j
+                            if t > total_max: continue
+                            if i + j > ij_max: continue # these functions are all really similar; the whole point of these coords is needing few i,j powers.
+                            rows.append((h, k, n, m, i, j))
+
 basis_idx = np.array(rows, dtype=np.int16)
 
 matSize = basis_idx[:, 0].size
 bSize = len(sym_b) if coords == "rij" else matSize
 print(f"MatSize = {bSize}, Coords: {coords}")
 
-if coords == "stmu":
-    Fij, Fji = calc_Fij_stmu(basis_idx)
-elif coords == "s12mu" or coords == "s12mu_morse":
-    Fij, Fji = calc_Fij_s12mu(basis_idx)
-elif coords == "rij":
-    Fij = calc_F_rij(basis_idx)
-    Fji = None
+Fij, Fji = calc_Fij(basis_idx, coords)
 
 start = time.time()
 

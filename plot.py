@@ -165,7 +165,7 @@ def plot_Psi_Eloc_by_alpha_beta(
         alpha = float(alpha_values[ia])
         beta = float(beta_values[ib])
 
-        E, C, cond = solve_HS(SH_layers, alpha, beta, 1e-15, coords)
+        E, C, cond = solve_HS(SH_layers, alpha, beta, basis_idx, 1e-15, coords)
         idx = np.argsort(np.real(E))
         E = np.real(E[idx])
         C = np.real(C[:, idx])
@@ -313,7 +313,7 @@ def plot_Psi_Eloc_by_alpha_beta(
         ii = int(s_i.val)
         i_real = int(sol_idx[ii])
         c = C[:, i_real]  # single eigenvector
-        print([float(cc/c[0]) for cc in c])
+        print('+'.join([f"({float(cc / c[0])}) * r12^{basis_idx[i][1]} " for i, cc in enumerate(c) if (basis_idx[i][0]==0 and basis_idx[i][2]==0 and basis_idx[i][3]==0 and basis_idx[i][4]==0 and basis_idx[i][5]==0)]))
 
         psi0 = B @ c
         A1c = A1 @ c
@@ -324,10 +324,10 @@ def plot_Psi_Eloc_by_alpha_beta(
         Ab2c = Ab2 @ c
 
         # pointwise exp factor
-        if coords in ["ri", "stmu", "s12mu"]:
-            exps = np.exp(-alpha * s_total - beta * rAB)
-        elif coords == "s12mu_morse":
+        if coords.endswith("_morse"):
             exps = np.exp(-alpha * s_total - beta * (rAB-1.4011)**2)
+        else:
+            exps = np.exp(-alpha * s_total - beta * rAB)
 
         psi = exps * psi0
 

@@ -7,15 +7,18 @@ from plot import plot_Psi_Eloc_by_alpha_beta
 
 # file = "SHlayers_t8_n-i_m-j_delta0_BO.pkl" # pretty good!
 # file = "SHlayers_t8_nm-khalf_delta0_BO_363.pkl"
-# file = "SHlayers_t7_delta0.1_BO_many-low-k_360.pkl" # wobbly asymmetric ne cusp function (uses n-i and k<=5 with t not capped by k)
-# file = "SHlayers_t8_delta0.0_BO_many-low-k_810.pkl" # better ee cusp than high-k with t = k+...
+file = "SHlayers_t8_delta0.0_BO_many-low-k_810.pkl" # better ee cusp than high-k with t = k+...
 # file = "SHlayers_10.pkl"
 # file = "SHlayers_t9_delta0.0_BO_many-low-k_1140.pkl"
 # file = "SHlayers_t6_delta0.1_BO_many-low-k-nonneg-nm-COUPLED-DIMER-R12.0_360.pkl" # worse ee, better ne as above
 # file = "SHlayers_t7_delta0.1_k5h7_1368_*.pkl"
 # file = "SHlayers_t7_delta0.1_BO_k5h7-BOscan_540_1.9856485906844448.pkl"
-file = "SHlayers_t4_delta0.1_k4h4-morse_210_*.pkl"
+# file = "SHlayers_t4_delta0.1_k4h4-morse_210_*.pkl"
+# plotrAB = 1.368119113560103
 plotrAB = 1.4
+# file = "SHlayers_t8_delta0.1_BO_s12uv-ij3_805_1.4.pkl" # worse even than t8_nm-khalf_delta0_BO_363 (similar # of basis functions)... Why does that have so much fewer fcts though? (t = k+..., at least)
+# file = "SHlayers_t7_delta0.1_BO_k5h7-BOscan_540_1.368119113560103.pkl"
+file = "SHlayers_t5_delta0.1_BO_s12uv-ij3_320_1.4.pkl"
 
 if "*" in file:
     layers = {}
@@ -40,8 +43,6 @@ else:
     with open(file, "rb") as f:
         layers = pickle.load(f)
     meta = layers["meta"]
-
-print(meta["coords"])
 
 # for bb in meta["basis_idx"]:
 #     print(bb)
