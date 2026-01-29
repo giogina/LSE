@@ -7,9 +7,10 @@ def rel_asym(A):
         return 0.0
     return np.linalg.norm(A - A.T) / nrm
 
-def assemble_HS(SH_layers, alpha, beta, debug = False, coords="s12mu"):
-    S = np.zeros_like(next(iter(SH_layers["S"].values())), dtype=np.float64)
-    H = np.zeros_like(S, dtype=np.float64)
+def assemble_HS(SH_layers, alpha, beta, H = None, S = None, debug = False, coords="s12mu"):
+
+    if S is None: S = np.zeros_like(next(iter(SH_layers["S"].values())), dtype=np.float64)
+    if H is None: H = np.zeros_like(S, dtype=np.float64)
 
     for (rAB0, s0), Sl in SH_layers["S"].items():
         if coords.endswith("_morse"):
@@ -126,12 +127,14 @@ def cond(S):
     cond = float(eigS.max() / np.abs(eigS).min())
     return cond
 
-def solve_HS(layers, alpha, beta, basis_idx, rcond = 1e-15, coords="s12mu"):   # alpha = 0.98
+def solve_HS_from_layers(layers, alpha, beta, basis_idx, rcond = 1e-15, coords="s12mu"):   # alpha = 0.98
 
-    H, S = assemble_HS(layers, alpha, beta, coords=coords) # todo: how come the min-eigS changes so much with alpha? Tiny function?
+    H, S = assemble_HS(layers, alpha, beta, coords=coords) # modify H and S in-place
+    return solve_HS(H, S, rcond=rcond)
+
+def solve_HS(H, S, rcond = 1e-15):   # alpha = 0.98
+
     H, S, q = diag_rescale_generalized(H, S)
-    # print_near_deps_from_S(S, basis_idx)
-    # print(S)
 
     X, keep, w = reduce_by_overlap(S, rcond)
     print(f"{int(np.count_nonzero(keep) / len(keep) * 100)}% of dimensions ({np.count_nonzero(keep)} functions) kept")

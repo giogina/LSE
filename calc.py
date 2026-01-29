@@ -1293,7 +1293,7 @@ def calc_F_ne(x1, y1, rAB, coords, basis_idx, X = None):
 
     P = rA1.size
 
-    if coords == "s12mu":
+    if coords.startswith("s12mu"):
         r12_p = power_table(r12, k_max)
         s1_p = power_table(s1, n_max, n_min)
         mu1_p = power_table(mu1, i_max)
@@ -1365,7 +1365,7 @@ def calc_F_ee(x1, y1, rAB, coords, basis_idx, delta, X = None):
     k_factors_ee = np.where(k_idx == 1, 1.0, np.where(k_idx == 0, -delta, 0.0))
     k_factors_B = np.where(k_idx == 0, 1.0, 0.0)  # only non-vanishing parts of B at r12=0
 
-    if coords == "s12mu":
+    if coords.startswith("s12mu"):
         s1_p = power_table(s1, nm_max, nm_min)
         mu1_p = power_table(mu1, ij_max)
 

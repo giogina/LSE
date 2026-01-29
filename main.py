@@ -5,22 +5,22 @@ from calc import *
 from sampling import *
 import pickle
 
-BO = True
+BO = False
 M = 1836.153
 
 # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
 h_max = 3 # Even 2 should be pretty accurate
-k_max = 4
+k_max = 5
 n_max = 8
 m_max = 8 # smu only
-ij_max = 3 # smu only  # todo: according to bo-scan-coeffs.ods, this needs to go higher than n,m (converges more slowly in mu)
+ij_max = 8 # smu only  # todo: according to bo-scan-coeffs.ods, this needs to go higher than n,m (converges more slowly in mu)
 ab_max = 0 # rij only
-total_max = 5
+total_max = 8
 delta = 0.1  # TODO: Try delta-sequence instead of r12-poly
 
 # todo; test non bo calc is ready - check it
 
-label = "s12uv-ij3"
+label = "h3k5"
 
 nMu = 16  # todo: test effect of these values on solution quality
 nrPhi = 12
@@ -30,14 +30,16 @@ sMax = 30
 
 # coords = "rij"
 # coords = "stmu"
-# coords = "s12mu_morse"
+coords = "s12mu_morse" # 134 secs for t5 (180 fcts, ij_max=5, -1.1744748333112973)
 # coords = "s12mu" # todo: H slightly non-hermitian? How to fix that?
-coords = "s12uv_morse"
+# coords = "s12uv_morse" # 535 secs for t5 (320 fcts, ij_max = 3, -1.1744618047518927)
 
 # TODO: octant = False gives almost exactly the same plots, but slightly less-negative energy, and less asym.
 
-abRange, wAB = [1.4], [1.0]
-# abRange, wAB = build_rAB_grid(KR = 8, R_min=0.7, R_max=2.2, gamma = 1.0)
+# abRange, wAB = [1.4], [1.0]
+abRange, wAB = build_rAB_grid(KR = 8, R_min=0.7, R_max=2.2, gamma = 1.0)
+# startFromrAB = 0
+startFromrAB = 0.73
 
 if BO:
     M1M = 1
@@ -146,6 +148,7 @@ nrP = 0
 savefile = f"SHlayers_t{total_max}_delta{delta}{'_BO' if BO else ''}{'_'+label if label is not None else ''}_{bSize}"
 
 for kab, rAB in enumerate(abRange):
+    if rAB < startFromrAB: continue
     s_shells, sW = build_s_shells(rAB, Ks=nrS, s_max=sMax, gamma = 3.0)
     layers = {
         "S": {},
