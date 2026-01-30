@@ -24,12 +24,13 @@ plotrAB = 1.4
 
 # file = "SHlayers_t8_delta0.1_h3k5_1926_*.pkl"  # Best at: beta = 8, alpha = 0.9, with E = -1.16404
 # file = "SHlayers_t8_delta0.1_BO_sampling-test-16-12-20-23-30_810_1.4.pkl"
-file = "SHlayers_t8_delta0.1_BO_sampling-test-12-12-20-15-20-no_dens_810_1.4.pkl"
 # file = "SHlayers_t8_delta0.1_BO_sampling-test-12-12-20-15-30-1.0_810_1.4.pkl"
 file = "SHlayers_t8_delta0.1_BO_basis-test-3-6-8-8-8_sampling-12-12-20-15-20_945_1.4.pkl"
 # file = "SHlayers_t8_delta0.1_BO_basis-test-3-4-8-8-8_sampling-12-12-20-15-20_675_1.4.pkl"
 # file = "SHlayers_t8_delta0.1_BO_basis-test-3-4-8-7-8_sampling-12-12-20-15-20_670_1.4.pkl"
-file = "SHlayers_t8_delta0.1_BO_basis-test-3-5-8m1-8-8_sampling-12-12-24-15-24_810_1.4.pkl"
+# file = "SHlayers_t6_delta0.1_BO_basis-test-3-5--1..8-8-6_sampling-12-12-24-15-24_810_1.4.pkl" # n, m =-1..6
+# file = "SHlayers_t8_delta0.1_BO_sampling-test-12-12-20-15-20-no_dens_810_1.4.pkl" # n, m = 0..8
+file = "SHlayers_t7_delta0.1_BO_hij-h3k5_675_1.4.pkl"
 
 # Basis test: (12-12-20-15-20-1.0), delta=0.1
 # kmax = 6:       -1.1744757880727803

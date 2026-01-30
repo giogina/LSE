@@ -2,7 +2,7 @@ from sampling import frange
 from scipy.sparse import csr_matrix
 import numpy as np
 
-def build_basis_idx(coords, h_max, k_max, nm_min, n_max, m_max, ij_max, total_max, ab_max):
+def build_basis_idx(coords, h_max, k_max, nm_min, n_max, m_max, ij_max, total_max, ab_max = 0, nrDeltas=1):
 
     X = None
     rows = []
@@ -57,7 +57,7 @@ def build_basis_idx(coords, h_max, k_max, nm_min, n_max, m_max, ij_max, total_ma
         for h in frange(0, h_max, 1):
             for k in frange(0, k_max, 1):
                 for n in frange(nm_min, n_max, 1):
-                    for m in frange(nm_min, n_max, 1):  # careful: Whenever using negative indices, adjust power_table call accordingly.
+                    for m in frange(nm_min, m_max, 1):  # careful: Whenever using negative indices, adjust power_table call accordingly.
                         for i in range(ij_max + 1):
                             for j in range(i + 1):
                                 # constraints
@@ -66,11 +66,18 @@ def build_basis_idx(coords, h_max, k_max, nm_min, n_max, m_max, ij_max, total_ma
                                     if m % 2 != 0: continue
                                 elif coords == "s12mu" or coords == "s12mu_morse":
                                     if i == j and m > n: continue # avoid duplication of (n, m, i, j=i) and (m, n, j=i, i)
-                                t = h + n + m + i + j # todo: temp: + k
+                                t = h + n-nm_min + m + i + j # todo: temp: + k
                                 if t > total_max: continue
                                 # rows.append((h, k, n-i-k/2., m-j-k/2., i, j))
                                 # rows.append((h, k, n-i, m-j, i, j))
-                                rows.append((h, k, n, m, i, j))
+                                # if coords == "s12mu_morse":
+                                #     d = 0
+                                #     while d <= nrDeltas:
+                                #         rows.append((h+i+j, k, n, m, i, j, d))
+                                #         d += 1
+                                # else:
+                                rows.append((h+i+j, k, n, m, i, j))
+
 
     elif coords == "s12uv_morse":
         for h in frange(0, h_max, 1):
@@ -102,6 +109,9 @@ def expand_idx(basis_idx, coords):
     if coords == "rij":
         a_idx = basis_idx[:, 6]
         b_idx = basis_idx[:, 7]
+    # elif coords in ["s12mu_morse"]:
+    #     a_idx = basis_idx[:, 6]  # index of delta grid
+    #     b_idx = np.zeros_like(h_idx)
     else:
         a_idx = np.zeros_like(h_idx)
         b_idx = np.zeros_like(h_idx)
