@@ -1,9 +1,7 @@
 
 import numpy as np
-from numpy.polynomial.laguerre import laggauss
 from numpy.polynomial.legendre import leggauss
 
-# from main import frange
 def frange(start, stop, step):
     x = start
     if step > 0:
@@ -14,9 +12,6 @@ def frange(start, stop, step):
         while x >= stop - 1e-12:
             yield x
             x += step
-
-import numpy as np
-from numpy.polynomial.legendre import leggauss
 
 def build_rAB_grid(
     KR: int,
@@ -71,8 +66,6 @@ def build_s_shells(rAB, Ks, s_max, gamma=3.0):  # (Yes, leggauss is used on purp
     ws = wu * ds_du
     return s, ws
 
-import numpy as np
-from numpy.polynomial.legendre import leggauss
 
 def split_s(s, rAB, Ku, gamma=6.0, eta_end=0.5, end_mode="both"):
     """
@@ -101,10 +94,9 @@ def split_s(s, rAB, Ku, gamma=6.0, eta_end=0.5, end_mode="both"):
     if end_mode not in ("both", "left"):
         raise ValueError("end_mode must be 'both' or 'left'")
 
-    # Gauss-Legendre on [-1,1]
     x, w = leggauss(Ku)
 
-    # --- (A) Center clustering on [-1,1]: densify near x=0 -> u=0.5 (=> s1=s2)
+    # Center clustering on [-1,1] (more s1~=s2)
     xg = np.sign(x) * np.abs(x) ** gamma
 
     if gamma == 1.0:
@@ -115,8 +107,7 @@ def split_s(s, rAB, Ku, gamma=6.0, eta_end=0.5, end_mode="both"):
     u_center = 0.5 * (xg + 1.0)
     du_center_dx = 0.5 * dxg_dx
 
-    # --- (B) End clustering on [0,1], built from the SAME xg (so "same gamma")
-    # u0 is already center-clustered; we now remap it to densify near ends.
+    # End clustering on [0,1], built from the same xg
     u0 = u_center
     du0_dx = du_center_dx
 
@@ -138,12 +129,10 @@ def split_s(s, rAB, Ku, gamma=6.0, eta_end=0.5, end_mode="both"):
     u = (1.0 - eta_end) * u_center + eta_end * u_end
     du_dx = (1.0 - eta_end) * du_center_dx + eta_end * du_end_dx
 
-    # Map u -> s1 in [rAB, s-rAB]
     span = s - 2.0 * rAB
     s1 = rAB + u * span
     s2 = s - s1
 
-    # Weights: dx -> u -> s1
     w_split = w * du_dx * span
 
     return s1, s2, w_split
@@ -153,7 +142,7 @@ def shell_area_weight(s1, s2, rAB):
     shell_area_2 = 4*np.pi*((s2 / rAB)**2 - 1/3)
     return shell_area_1 * shell_area_2
 
-def sample_s_shell(rAB, s, nMu=12, Nphi=32, octant=False, s1 = 1.0):
+def sample_s_shell(rAB, s, nMu=12, Nphi=32, octant=False, s1 = 1.0, gamma_phi = 8.0):
     """
     Deterministic quadrature on the prolate spheroidal shell rA+rB = s.
     Returns (x,y,z, w) arrays of length nMu*Nphi.
@@ -161,9 +150,9 @@ def sample_s_shell(rAB, s, nMu=12, Nphi=32, octant=False, s1 = 1.0):
     R = full internuclear distance (same R used in mu=s/R)
     """
     if octant: # todo: test further
-        ds = np.abs(s-s1)  # difference between s1, s2 (small ds -> check more small phi values for small r12)
-        gamma_phi = gamma_phi_from_ds(ds, gamma_max=8.)
-        return sample_s_shell_phi_bias_octant(rAB, s, nMu+1, Nphi, gamma_phi) # * int(np.sqrt(gamma_phi))
+        # ds = np.abs(s-s1)  # difference between s1, s2 (small ds -> check more small phi values for small r12)
+        # gamma_phi = gamma_phi_from_ds(ds, gamma_max=gamma_phi_max)
+        return sample_s_shell_phi_bias_octant(rAB, s, nMu, Nphi, gamma_phi) # * int(np.sqrt(gamma_phi))
         # return sample_s_shell_phi_bias_octant(rAB, s, nMu, Nphi, 3.0) # todo: the 1.3 factor helped a lot too
 
     mu = s / rAB
@@ -333,7 +322,6 @@ def I3_s_exp(rAB: float, k: float) -> float:
 
     dI3_dp = 2*np.pi * a**3 * (2*dI2_dp - (2/3)*dI0_dp)
     return -(rAB * dI3_dp)
-import numpy as np
 
 def integrate_6d_via_split(rAB, s_max, Ks=48, Ku=32, Nnu=32, Nphi=64, f=None, gamma=2.0):
     """
@@ -479,118 +467,6 @@ def test_r12_moment(rAB=1.4, alpha=0.7, beta=0.4):
     print("6D r12^2 moment exact:", ex)
     print("relerr:", abs(num-ex)/abs(ex))
 
-def plot_r12_weight_cdf(
-    rAB=1.4,
-    nS=20,
-    sMax=40.0,
-    gamma=3.0,
-    Ku=11,
-    nMu=12,
-    max_pairs=2_000_0000,
-    seed=0,
-):
-    """
-    Build the *actual* r12-weight distribution implied by your current sampling:
-      build_s_shells -> split_s -> sample_s_shell(e1 in xy-plane) -> sample_s_shell(e2 octant)
-    and plot:
-      (1) CDF of total weight vs r12
-      (2) weighted r12 histogram mass (log-y)
-
-    Weight per pair is exactly:
-        W = sW[ks] * splitW[j] * w1[i] * w2[j]
-    which mirrors how main.py passes sW[ks]*splitW[j] into calc_AB and combines with w1,w2 there.
-    """
-
-    rng = np.random.default_rng(seed)
-
-    s_shells, sW = build_s_shells(rAB, Ks=nS, s_max=sMax)
-
-    r12_chunks = []
-    w_chunks = []
-    total_pairs = 0
-
-    for ks, s in enumerate(s_shells):
-        s1_vals, s2_vals, splitW = split_s(s, rAB, Ku=11, gamma = 3.0)
-
-        outer_w = sW[ks]
-
-        for j_split, (s1, s2) in enumerate(zip(s1_vals, s2_vals)):
-            # electron 1: xy plane only (Nphi=2)
-            x1, y1, z1, mu1, phi1, w1 = sample_s_shell(rAB, s1, Nphi=2, nMu=nMu, octant=False)
-
-            # electron 2: octant (your biased-phi version is inside sample_s_shell now)
-            x2, y2, z2, mu2, phi2, w2 = sample_s_shell(rAB, s2, Nphi=24, nMu=nMu, octant=True, s1=s1)
-
-            W_outer = outer_w * splitW[j_split]
-
-            dx = x1[:, None] - x2[None, :]
-            dy = y1[:, None] - y2[None, :]
-            dz = z1[:, None] - z2[None, :]
-            r12 = np.sqrt(dx*dx + dy*dy + dz*dz)
-
-            W = (W_outer * w1[:, None] * w2[None, :])
-
-            flat_r12 = r12.ravel()
-            flat_W = W.ravel()
-
-            n = flat_r12.size
-            if total_pairs + n > max_pairs:
-                remaining = max_pairs - total_pairs
-                if remaining <= 0:
-                    break
-                idx = rng.choice(n, size=remaining, replace=False)
-                flat_r12 = flat_r12[idx]
-                flat_W = flat_W[idx]
-                n = remaining
-
-            r12_chunks.append(flat_r12.astype(np.float64, copy=False))
-            w_chunks.append(flat_W.astype(np.float64, copy=False))
-            total_pairs += n
-
-        if total_pairs >= max_pairs:
-            break
-
-    r12_all = np.concatenate(r12_chunks) if r12_chunks else np.array([], dtype=np.float64)
-    w_all = np.concatenate(w_chunks) if w_chunks else np.array([], dtype=np.float64)
-
-    mask = np.isfinite(r12_all) & np.isfinite(w_all) & (w_all > 0)
-    r12_all = r12_all[mask]
-    w_all = w_all[mask]
-
-    if r12_all.size == 0:
-        raise RuntimeError("No samples collected. Check your sampling parameters.")
-
-    # CDF
-    order = np.argsort(r12_all)
-    r_sorted = r12_all[order]
-    w_sorted = w_all[order]
-    cdf = np.cumsum(w_sorted)
-    cdf /= cdf[-1]
-
-    plt.figure()
-    plt.plot(r_sorted, cdf)
-    plt.xlabel("r12")
-    plt.ylabel("Cumulative weight fraction (<= r12)")
-    plt.title(f"Weight CDF vs r12  (rAB={rAB}, pairs≈{r_sorted.size})")
-    plt.grid(True)
-    plt.show()
-
-    # Weighted histogram mass (log-y)
-    bins = np.linspace(0.0, np.percentile(r12_all, 99.9), 200)
-    hist, edges = np.histogram(r12_all, bins=bins, weights=w_all)
-    centers = 0.5*(edges[:-1] + edges[1:])
-    hist = hist / np.sum(hist)
-
-    plt.figure()
-    plt.semilogy(centers, hist + 1e-300)
-    plt.xlabel("r12")
-    plt.ylabel("Weighted bin mass (log scale)")
-    plt.title("Weighted r12 distribution (mass per bin, not /Δr)")
-    plt.grid(True)
-    plt.show()
-
-
-    return r_sorted, cdf, centers, hist
 
 
 

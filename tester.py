@@ -22,11 +22,60 @@ plotrAB = 1.4
 # file = "SHlayers_t5_delta0.1_BO_s12uv-ij3_320_1.4.pkl"
 # file = "SHlayers_t5_delta0.1_BO_s12mu-ij3_180_1.4.pkl"
 
-file = "SHlayers_t8_delta0.1_h3k5_1926_*.pkl"  # Best at: beta = 8, alpha = 0.9, with E = -1.16403
+# file = "SHlayers_t8_delta0.1_h3k5_1926_*.pkl"  # Best at: beta = 8, alpha = 0.9, with E = -1.16404
+# file = "SHlayers_t8_delta0.1_BO_sampling-test-16-12-20-23-30_810_1.4.pkl"
+file = "SHlayers_t8_delta0.1_BO_sampling-test-12-12-20-15-20-no_dens_810_1.4.pkl"
+# file = "SHlayers_t8_delta0.1_BO_sampling-test-12-12-20-15-30-1.0_810_1.4.pkl"
+file = "SHlayers_t8_delta0.1_BO_basis-test-3-6-8-8-8_sampling-12-12-20-15-20_945_1.4.pkl"
+# file = "SHlayers_t8_delta0.1_BO_basis-test-3-4-8-8-8_sampling-12-12-20-15-20_675_1.4.pkl"
+# file = "SHlayers_t8_delta0.1_BO_basis-test-3-4-8-7-8_sampling-12-12-20-15-20_670_1.4.pkl"
+file = "SHlayers_t8_delta0.1_BO_basis-test-3-5-8m1-8-8_sampling-12-12-24-15-24_810_1.4.pkl"
+
+# Basis test: (12-12-20-15-20-1.0), delta=0.1
+# kmax = 6:       -1.1744757880727803
+# kmax = 5:       -1.1744758250054517
+# kmax = 4:       -1.1744760111147405  # higher kmax -> less negative
+# nmmax = 7:      -1.1744759404572032 # worse local energy
+
+# Below:
+# gamma_phi = gamma_phi_from_ds(ds, gamma_max=8.)
+# return sample_s_shell_phi_bias_octant(rAB, s, nMu + 1, Nphi, gamma_phi)  # * int(np.sqrt(gamma_phi))
+
+# Exact:      −1.174475931
+#   nrS = 10: -1.1752641004439177 (16-12-10-21-30)
+#   nrS = 15: -1.1744481424394024 (16-12-15-21-30)
+#   nrS = 20: -1.1744756704550880 (16-12-20-21-30)
+#   nrS = 25: -1.1744756902015085 (16-12-25-21-30) *
+#   nrS = 30: -1.1744756942647818 (16-12-30-21-30)
+#   nMu =  8: -1.1744758387977365 ( 8-12-20-21-30)
+#   nMu = 12: -1.1744757273010578 (12-12-20-21-30) *
+#   nMu = 16: -1.1744756704550880 (16-12-20-21-30)
+#   nMu = 20: -1.1744756987908325 (20-12-20-21-30)
+#   nMu = 24: -1.1744757008532654 (24-12-20-21-30)
+# nrPhi =  8: -1.1744753866153097 (16- 8-20-21-30)
+# nrPhi = 12: -1.1744756704550880 (16-12-20-21-30) *
+# nrPhi = 16: -1.1744756867794202 (16-16-20-21-30)
+# nrPhi = 20: -1.1744756917496630 (16-20-20-21-30)
+# nrS12 = 11: -1.1744744085387566 (16-12-20-11-30)
+# nrS12 = 15: -1.1744757144797389 (16-12-20-15-30) *
+# nrS12 = 19: -1.1744756690241691 (16-12-20-19-30)
+# nrS12 = 21: -1.1744756704550880 (16-12-20-21-30)
+# nrS12 = 23: -1.1744756721520062 (16-12-20-23-30)
+
+# (s1-s2)/(s-2*rAB) mu densifying: -1.174475756616024 (12-12-20-15-30-3.0)
+# (s1-s2)/(2*rAB) mu densifying:   -1.1744757563373653 (12-12-20-15-30-3.0)
+# gamma = 1.0 (no densifying):     -1.1744758597236769
+# Same, but nrS = 25:              -1.1744758544951772
+# Same, but nrS=20, sMax=20:       -1.1744758250054517 (12-12-20-15-20-3.0)
+# Same, but nrS=20, sMax=40:       -1.174476601551813  # less density at tiny s -> more negative energy.
+# nMu + 1:                         -1.174475841238099
+# no mu densifying, only phi w. 6: -1.174475779439825
+
 
 if "*" in file:
-    for alpha in arange(0.7, 1.1, 0.1):
-        for beta in arange(7.8, 8.2, 0.05):
+    for alpha in arange(1.0, 1.01, 0.1):
+        for beta in arange(8, 8.11, 0.1):
+            print(alpha, beta)
 
             plot_nonBO_from_files(
                 file,
@@ -37,7 +86,8 @@ if "*" in file:
                 x1_min=-8, x1_max=8,
                 y1_min=-8, y1_max=8,
                 zlim_eloc=(-1.2, -1.1),
-                savepic=f"~/Pictures/nonbo_t8_delta0.1_h3k5_1926_alpha{alpha}_beta{beta}_Eeee.png"
+                rcond = 1e-17,
+                savepic=f"~/Pictures/nonbo_t8_delta0.1_h3k5_1926_alpha{alpha:.2f}_beta{beta:.2f}_Eeee.png"
             )
 
 else:

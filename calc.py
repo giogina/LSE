@@ -1,5 +1,5 @@
 import numpy as np
-
+from coords import expand_idx
 
 def potential_ri(rAB, rA1, rB1, rA2, rB2, r12):
     return 1/rAB + 1/r12 - 1/rA1 - 1/rB1 - 1/rA2 - 1/rB2
@@ -1057,22 +1057,6 @@ def calc_H_alphabeta_s12uv_morse(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, Minv, M
 
     return H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_beta_ij, H_beta_ji, H_alpha2, H_alphabeta, c_beta2_1
 
-def expand_idx(basis_idx, coords):
-    h_idx = basis_idx[:, 0]
-    k_idx = basis_idx[:, 1]
-    n_idx = basis_idx[:, 2]
-    m_idx = basis_idx[:, 3]
-    i_idx = basis_idx[:, 4]
-    j_idx = basis_idx[:, 5]
-
-    if coords == "rij":
-        a_idx = basis_idx[:, 6]
-        b_idx = basis_idx[:, 7]
-    else:
-        a_idx = np.zeros_like(h_idx)
-        b_idx = np.zeros_like(h_idx)
-    return h_idx, k_idx, n_idx, m_idx, i_idx, j_idx, a_idx, b_idx
-
 def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X=None):
 
         rA1 = np.sqrt((x1 + rAB/2) ** 2 + y1 ** 2)
@@ -1290,6 +1274,7 @@ def calc_F_ne(x1, y1, rAB, coords, basis_idx, X = None):
     n_min = np.min(n_idx)
     n_max = np.max(n_idx)
     k_max = np.max(k_idx)
+    print(n_min, n_max)
 
     P = rA1.size
 
@@ -1306,10 +1291,10 @@ def calc_F_ne(x1, y1, rAB, coords, basis_idx, X = None):
         part_21 = mu1_p[:, j_idx] * mu2 ** i_idx * s1_p[:, m_idx] * s2 ** n_idx
 
         # m*s2^(m-1)*mu2^j+j*s2^m*mu2^(j-1)/rAB
-        part_12_diff = (np.where(m_idx > 0, m_idx * mu1_p[:, i_idx] * mu2 ** j_idx * s1_p[:, n_idx] * s2 ** (m_idx - 1), 0.0)
-                      + np.where(j_idx > 0, j_idx * mu1_p[:, i_idx] * mu2 ** (j_idx - 1) * s1_p[:, n_idx] * s2 ** m_idx / rAB, 0.0))
-        part_21_diff = (np.where(n_idx > 0, n_idx * mu1_p[:, j_idx] * mu2 ** i_idx * s1_p[:, m_idx] * s2 ** (n_idx - 1), 0.0)
-                      + np.where(i_idx > 0, i_idx * mu1_p[:, j_idx] * mu2 ** (i_idx - 1) * s1_p[:, m_idx] * s2 ** n_idx / rAB, 0.0))
+        part_12_diff = (np.where(m_idx != 0, m_idx * mu1_p[:, i_idx] * mu2 ** j_idx * s1_p[:, n_idx] * s2 ** (m_idx - 1), 0.0)
+                      + np.where(j_idx != 0, j_idx * mu1_p[:, i_idx] * mu2 ** (j_idx - 1) * s1_p[:, n_idx] * s2 ** m_idx / rAB, 0.0))
+        part_21_diff = (np.where(n_idx != 0, n_idx * mu1_p[:, j_idx] * mu2 ** i_idx * s1_p[:, m_idx] * s2 ** (n_idx - 1), 0.0)
+                      + np.where(i_idx != 0, i_idx * mu1_p[:, j_idx] * mu2 ** (i_idx - 1) * s1_p[:, m_idx] * s2 ** n_idx / rAB, 0.0))
 
         F_ne_1 = B * (part_12_diff + part_21_diff)
         B = B * (part_12 + part_21)

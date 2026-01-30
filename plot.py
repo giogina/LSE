@@ -3,7 +3,7 @@ import os
 
 import numpy as np
 import matplotlib as mpl
-mpl.use("Agg")
+# mpl.use("Agg")
 import matplotlib.pyplot as plt
 from matplotlib.widgets import Slider
 import pickle
@@ -435,7 +435,7 @@ def plot_Psi_Eloc_by_alpha_beta(
 
         ax_phi.set_title(
             f"ψ | alpha={alpha:.6f} beta={beta:.6f}\n"  #  cond(S)={cache_entry['condS']:.3e}
-            f"E={E[i_real]:.10f}\n"
+            f"i={i_real}, E={E[i_real]:.10f}\n"
             f"Electron 2 fixed at: x2,y2,z2=({geom['x2']:.3f},{geom['y2']:.3f},{geom['z2']:.3f})"
         )
         ax_eloc.set_title(
@@ -504,6 +504,7 @@ def plot_nonBO_from_files(
     y2_init=0.4,
     z2_init=0.4,
 
+    rcond = 1e-17,
     savepic = None # file name for saving the plot instead
 ):
     """
@@ -638,7 +639,7 @@ def plot_nonBO_from_files(
     #  Solve
     # -------
 
-    E, C, cond = solve_HS(H, S, 1e-15)
+    E, C, cond = solve_HS(H, S, rcond)
     idx = np.argsort(np.real(E))
     E = np.real(E[idx])
     C = np.real(C[:, idx])
@@ -831,12 +832,16 @@ def plot_nonBO_from_files(
         ax_eloc.scatter([geom["x2"]], [geom["y2"]], [zmax2], c=["orange"], s=160, depthshade=False)
 
         ax_phi.set_title(
-            f"ψ | alpha={alpha:.6f} beta={beta:.6f} cond(S)={cond:.3e}\n"
-            f"i={i_real}  E={E[i_real]:.10f}  x2,y2,z2=({geom['x2']:.3f},{geom['y2']:.3f},{geom['z2']:.3f})"
+            f"ψ | alpha={alpha:.6f} beta={beta:.6f}\n"  # cond(S)={cache_entry['condS']:.3e}
+            f"E={E[i_real]:.10f}\n"
+            f"Electron 2 fixed at: x2,y2,z2=({geom['x2']:.3f},{geom['y2']:.3f},{geom['z2']:.3f})"
         )
         ax_eloc.set_title(
-            f"Eloc | i={i_real}  epsilon={epsilon:.10e}\n"
-            f"x2,y2,z2=({geom['x2']:.3f},{geom['y2']:.3f},{geom['z2']:.3f})"
+            f"Local energy | epsilon={epsilon:.10e}"
+        )
+        ax_cusp.set_title(
+            f"Cusp functions (should be 0)\n"
+            f"Red: e-e, Green: e-n"
         )
 
         ax_phi.set_xlabel("x1"); ax_phi.set_ylabel("y1"); ax_phi.set_zlabel("ψ")
@@ -854,7 +859,7 @@ def plot_nonBO_from_files(
     if savepic == None:
         plt.show(block=True)
     else:
-        fig.savefig(os.path.expanduser(savepic.replace("Eeee", f"E{E}")), dpi=300, bbox_inches="tight")
+        fig.savefig(os.path.expanduser(savepic.replace("Eeee", f"E{E[0]}")), dpi=150, bbox_inches="tight")
         plt.close(fig)
 
 
