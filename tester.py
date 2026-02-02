@@ -30,7 +30,16 @@ file = "SHlayers_t8_delta0.1_BO_basis-test-3-6-8-8-8_sampling-12-12-20-15-20_945
 # file = "SHlayers_t8_delta0.1_BO_basis-test-3-4-8-7-8_sampling-12-12-20-15-20_670_1.4.pkl"
 # file = "SHlayers_t6_delta0.1_BO_basis-test-3-5--1..8-8-6_sampling-12-12-24-15-24_810_1.4.pkl" # n, m =-1..6
 # file = "SHlayers_t8_delta0.1_BO_sampling-test-12-12-20-15-20-no_dens_810_1.4.pkl" # n, m = 0..8
-file = "SHlayers_t7_delta0.1_BO_hij-h3k5_675_1.4.pkl"
+file = "SHlayers_t8_delta0.1_hij-h3k5_2850_*.pkl"
+
+# delta = -1.0: horrible.
+# delta = -0.3: not great
+# delta = -0.1: cusp function still a bit offset (to below, as a whole)
+# delta =  0.0: offset as a whole, but flatter
+# delta =  0.1: Almost the same, Fee really flat though.
+# delta =  0.3: Still good, but Fee bent downwards
+
+
 
 # Basis test: (12-12-20-15-20-1.0), delta=0.1
 # kmax = 6:       -1.1744757880727803
@@ -72,23 +81,27 @@ file = "SHlayers_t7_delta0.1_BO_hij-h3k5_675_1.4.pkl"
 # nMu + 1:                         -1.174475841238099
 # no mu densifying, only phi w. 6: -1.174475779439825
 
-
+# todo: plot at rAB = 1 - does it dip negative? Why is beta=8 better than beta=13, when for the 1D problem beta=13 is the clear optimum? (non-rectangular function collection?)
+# todo: plot out f(rAB).
+#  Would this be different (8 vs 13) if using h-independent tmax check?
+#  How "product-like" does the wave function behave in the first place?
 if "*" in file:
-    for alpha in arange(1.0, 1.01, 0.1):
-        for beta in arange(8, 8.11, 0.1):
+    for alpha in arange(1.00, 1.01, 0.1):
+        for beta in arange(8.8, 9.01, 0.1):
             print(alpha, beta)
+            rAB = 1.4
 
             plot_nonBO_from_files(
                 file,
                 alpha=alpha,
                 beta=beta,
-                plot_rAB_target=1.4,
+                plot_rAB_target=rAB,
                 nx1=50, ny1=50,
                 x1_min=-8, x1_max=8,
                 y1_min=-8, y1_max=8,
-                zlim_eloc=(-1.2, -1.1),
-                rcond = 1e-17,
-                savepic=f"~/Pictures/nonbo_t8_delta0.1_h3k5_1926_alpha{alpha:.2f}_beta{beta:.2f}_Eeee.png"
+                zlim_eloc=(-1.22, -1.1),
+                rcond = 1e-16,
+                savepic=f"~/Pictures/{file.replace('SHlayers_', '').replace('*.pkl', '')}_alpha{alpha:.2f}_beta{beta:.2f}_rAB{rAB}_Eeee.png"
             )
 
 else:

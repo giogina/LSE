@@ -319,7 +319,8 @@ def plot_Psi_Eloc_by_alpha_beta(
         ii = int(s_i.val)
         i_real = int(sol_idx[ii])
         c = C[:, i_real]  # single eigenvector
-        print('+'.join([f"({float(cc / c[0])}) * r12^{basis_idx[i][1]} " for i, cc in enumerate(c) if (basis_idx[i][0]==0 and basis_idx[i][2]==0 and basis_idx[i][3]==0 and basis_idx[i][4]==0 and basis_idx[i][5]==0)]))
+        # print('+'.join([f"({float(cc / c[0])}) * r12^{basis_idx[i][1]} " for i, cc in enumerate(c) if (basis_idx[i][0]==0 and basis_idx[i][2]==0 and basis_idx[i][3]==0 and basis_idx[i][4]==0 and basis_idx[i][5]==0)]))
+        print('+'.join([f"({float(cc / c[0])}) * rAB^{basis_idx[i][0]} " for i, cc in enumerate(c) if (basis_idx[i][1]==0 and basis_idx[i][2]==0 and basis_idx[i][3]==0 and basis_idx[i][4]==0 and basis_idx[i][5]==0)]))
 
         psi0 = B @ c
         A1c = A1 @ c
@@ -729,6 +730,10 @@ def plot_nonBO_from_files(
         ii = 0
         i_real = int(sol_idx[ii])
         c = C[:, i_real]
+        print("("+'+'.join([f"({float(cc / c[0])}) * rAB^{basis_idx[i][0]} " for i, cc in enumerate(c) if (basis_idx[i][1]==0 and basis_idx[i][2]==0 and basis_idx[i][3]==0 and basis_idx[i][4]==0 and basis_idx[i][5]==0)])+f")*exp(-{beta}*(rAB-1.4011)^2)")
+        print("("+'+'.join([f"({float(cc / c[0])}) * rAB^{basis_idx[i][0]} " for i, cc in enumerate(c) if (basis_idx[i][1]==1 and basis_idx[i][2]==0 and basis_idx[i][3]==0 and basis_idx[i][4]==0 and basis_idx[i][5]==0)])+f")*exp(-{beta}*(rAB-1.4011)^2)")
+        print("("+'+'.join([f"({float(cc / c[0])}) * rAB^{basis_idx[i][0]} " for i, cc in enumerate(c) if (basis_idx[i][1]==0 and basis_idx[i][2]==1 and basis_idx[i][3]==0 and basis_idx[i][4]==0 and basis_idx[i][5]==0)])+f")*exp(-{beta}*(rAB-1.4011)^2)")
+        print("("+'+'.join([f"({float(cc / c[0])}) * rAB^{basis_idx[i][0]} " for i, cc in enumerate(c) if (basis_idx[i][1]==0 and basis_idx[i][2]==0 and basis_idx[i][3]==0 and basis_idx[i][4]==1 and basis_idx[i][5]==1)])+f")*exp(-{beta}*(rAB-1.4011)^2)")
 
         geom = get_cached_geom(s_x2.val, s_y2.val, s_z2.val)
 
@@ -809,7 +814,7 @@ def plot_nonBO_from_files(
 
             ax_cusp.set_xlim(-3.0, 3.0)
             ax_cusp.set_ylim(0.0, 3.0)
-            ax_cusp.set_zlim(-0.03, 0.03)
+            ax_cusp.set_zlim(-0.05, 0.05)
 
         ax_phi.clear()
         ax_eloc.clear()

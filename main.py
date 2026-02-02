@@ -10,26 +10,29 @@ M = 1836.1526738  #Previously used: 1836.153
 
 # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
 h_max = 3 # Even 2 should be pretty accurate
-k_max = 4
+k_max = 5
 nm_min = -1  # improves cusps; little effect on energy
 nm_max = 8
-ij_max = 7
-total_max = 7
+ij_max = 8
+total_max = 8 # todo: test not limiting total_max, instead "rectangular" structure with hxkx.... Why beta=8 instead of 13, anyway?
 # deltas = [0.0, 0.3]
-delta = 0.1  # TODO: Try delta-sequence instead of r12-poly
-
+# delta = 0.1  # TODO: Try delta-sequence instead of r12-poly.
+# Todo: delta sequence:
+# todo: run exactly this again without the h+i+j to compare.
 # todo: Test h -> h+i+j (essentially not dividing mu1, mu2 by rAB) - is that better w.r.t. beta dependence?
-for phiGammaMax in [1.0]:
-    nMu = 12
+for delta in [0.1]:
+    nMu = 16
     nrPhi = 12
-    nrS = 20  # 30-60 are optimal according to numerical tests (any more, and accumulation of numerical errors starts taking over)
+    nrS = 24  # 30-60 are optimal according to numerical tests (any more, and accumulation of numerical errors starts taking over)
     nrS12 = 15  # Odd -> s1=s2 allowed
     sMax = 24
 
+    startFromrAB = 1.1 # Use when resuming a calculation
+    upTorAB = 2.0
     abRange, wAB = build_rAB_grid(KR = 8, R_min=0.7, R_max=2.2, gamma = 1.0)
-    startFromrAB = 0 # Use when resuming a calculation
 
-    label = "hij-h3k5"
+    label = "hij-h3k5"  # h+i+j is a bit better at alpha=1.0, beta=8.0
+    # label = "delta-test"
     # label = f"basis-test-{h_max}-{k_max}-{nm_min}..{nm_max}-{ij_max}-{total_max}_sampling-{nMu}-{nrPhi}-{nrS}-{nrS12}-{sMax}"
 
     coords = "s12mu_morse"  # Best performance & accuracy
@@ -55,7 +58,7 @@ for phiGammaMax in [1.0]:
     nrP = 0
 
     for kab, rAB in enumerate(abRange):
-        if rAB < startFromrAB: continue
+        if rAB < startFromrAB or rAB > upTorAB: continue
         s_shells, sW = build_s_shells(rAB, Ks=nrS, s_max=sMax, gamma = 3.0)
         init_layers(coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X, total_max, BO)
 
