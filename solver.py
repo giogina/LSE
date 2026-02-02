@@ -1,37 +1,6 @@
 import numpy as np
 from scipy.linalg import eig, eigh
-
-def rel_asym(A):
-    nrm = np.linalg.norm(A)
-    if nrm == 0.0:
-        return 0.0
-    return np.linalg.norm(A - A.T) / nrm
-
-def assemble_HS(SH_layers, alpha, beta, H = None, S = None, debug = False, coords="s12mu"):
-
-    if S is None: S = np.zeros_like(next(iter(SH_layers["S"].values())), dtype=np.float64)
-    if H is None: H = np.zeros_like(S, dtype=np.float64)
-
-    for (rAB0, s0), Sl in SH_layers["S"].items():
-        if coords.endswith("_morse"):
-            exps = np.exp(-2 * alpha * s0 - 2 * beta * (rAB0-1.4011)**2)
-        else:
-            exps = np.exp(-2 * alpha * s0 - 2 * beta * rAB0)
-
-        S += Sl * exps
-        Hl = np.zeros_like(H)
-        Hl += SH_layers["H_1"][rAB0, s0]
-        Hl += SH_layers["H_alpha"][rAB0, s0] * alpha
-        Hl += SH_layers["H_alpha2"][rAB0, s0] * alpha**2
-        Hl += SH_layers["H_alphabeta"][rAB0, s0] * alpha*beta
-        Hl += SH_layers["H_beta"][rAB0, s0] * beta
-        Hl += SH_layers["H_beta2"][rAB0, s0] * beta**2
-        H += Hl * exps
-
-    if debug:
-        print("H asym rel:", rel_asym(H))
-        print("S asym rel:", rel_asym(S))
-    return H, S
+from layers import assemble_HS, assemble_HS_multi_alpha
 
 
 def diag_rescale_generalized(H, S, eps=1e-300):
@@ -129,8 +98,9 @@ def cond(S):
 
 def solve_HS_from_layers(layers, alpha, beta, basis_idx, rcond = 1e-15, coords="s12mu"):   # alpha = 0.98
 
-    H, S = assemble_HS(layers, alpha, beta, coords=coords) # modify H and S in-place
-    return solve_HS(H, S, rcond=rcond)
+    # H, S = assemble_HS(layers, alpha, beta, coords=coords)
+    H, S, frankenBasis = assemble_HS_multi_alpha(layers, alphas=[0.3, 0.7, 1.0, 1.5, 2.0], betas = [beta], Rms=[1.4], coords=coords)
+    return solve_HS(H, S, rcond=rcond), frankenBasis
 
 def solve_HS(H, S, rcond = 1e-15):   # alpha = 0.98
 

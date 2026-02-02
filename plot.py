@@ -10,7 +10,8 @@ import pickle
 from glob import glob
 
 from calc import calc_F_ee, calc_F_ne, calc_AB
-from solver import solve_HS_from_layers, solve_HS, assemble_HS
+from solver import solve_HS_from_layers, solve_HS
+from layers import assemble_HS
 
 
 def clustered_linspace(vmin, vmax, n, strength=2.5):
@@ -171,7 +172,7 @@ def plot_Psi_Eloc_by_alpha_beta(
         alpha = float(alpha_values[ia])
         beta = float(beta_values[ib])
 
-        E, C, cond = solve_HS_from_layers(SH_layers, alpha, beta, basis_idx, 1e-15, coords)
+        (E, C, cond), frankenBasis = solve_HS_from_layers(SH_layers, alpha, beta, basis_idx, 1e-15, coords)
         idx = np.argsort(np.real(E))
         E = np.real(E[idx])
         C = np.real(C[:, idx])
@@ -191,6 +192,7 @@ def plot_Psi_Eloc_by_alpha_beta(
             "E": E,
             "C": C,
             "sol_idx": sol_idx,
+            "frankenBasis": frankenBasis
         }
         eig_cache[key] = entry
         return entry
@@ -304,6 +306,7 @@ def plot_Psi_Eloc_by_alpha_beta(
         E = cache_entry["E"]
         C = cache_entry["C"]
         sol_idx = cache_entry["sol_idx"]
+        frankenBasis = cache_entry["frankenBasis"]
 
         if int(s_i.val) > sol_idx.size - 1 or int(getattr(s_i, "valmax", 0)) != sol_idx.size - 1:
             update_i_slider_max(sol_idx.size)
@@ -320,32 +323,49 @@ def plot_Psi_Eloc_by_alpha_beta(
         i_real = int(sol_idx[ii])
         c = C[:, i_real]  # single eigenvector
         # print('+'.join([f"({float(cc / c[0])}) * r12^{basis_idx[i][1]} " for i, cc in enumerate(c) if (basis_idx[i][0]==0 and basis_idx[i][2]==0 and basis_idx[i][3]==0 and basis_idx[i][4]==0 and basis_idx[i][5]==0)]))
-        print('+'.join([f"({float(cc / c[0])}) * rAB^{basis_idx[i][0]} " for i, cc in enumerate(c) if (basis_idx[i][1]==0 and basis_idx[i][2]==0 and basis_idx[i][3]==0 and basis_idx[i][4]==0 and basis_idx[i][5]==0)]))
+        # print('+'.join([f"({float(cc / c[0])}) * rAB^{basis_idx[i][0]} " for i, cc in enumerate(c) if (basis_idx[i][1]==0 and basis_idx[i][2]==0 and basis_idx[i][3]==0 and basis_idx[i][4]==0 and basis_idx[i][5]==0)]))
 
-        psi0 = B @ c
-        A1c = A1 @ c
-        Aac = Aa @ c
-        Abc = Ab @ c
-        Aa2c = Aa2 @ c
-        Aabc = Aab @ c
-        Ab2c = Ab2 @ c
+        N = frankenBasis.N
+        nblocks = len(frankenBasis.blocks)
 
-        # pointwise exp factor
-        if coords.endswith("_morse"):
-            exps = np.exp(-alpha * s_total - beta * (rAB-1.4011)**2)
-        else:
-            exps = np.exp(-alpha * s_total - beta * rAB)
+        # sanity
+        assert c.shape[0] == nblocks * N
+        assert B.shape[1] == N
 
-        psi = exps * psi0
+        # accumulators over points
+        psi = np.zeros(B.shape[0], dtype=np.float64)
+        Hpsi = np.zeros(B.shape[0], dtype=np.float64)
 
-        Hpsi = exps * (
-            A1c
-            + alpha * Aac
-            + beta  * Abc
-            + (alpha**2) * Aa2c
-            + (alpha*beta) * Aabc
-            + (beta**2) * Ab2c
-        )
+        for k, blk, sl in frankenBasis.iter_blocks():
+            alpha_k = blk["alpha"]
+            beta_k = blk["beta"]
+            Rm_k = blk.get("Rm", None)
+            ck = c[sl]  # tile coefficients for this block, length N
+
+            # coefficient projections (pointwise vectors, length npts)
+            psi0_k = B @ ck
+            A1c_k = A1 @ ck
+            Aac_k = Aa @ ck
+            Abc_k = Ab @ ck
+            Aa2c_k = Aa2 @ ck
+            Aabc_k = Aab @ ck
+            Ab2c_k = Ab2 @ ck
+
+            # pointwise exp factor for this block
+            if coords.endswith("_morse"):
+                exps_k = np.exp(-alpha_k * s_total - beta_k * (Rm_k - rAB) ** 2)
+            else:
+                exps_k = np.exp(-alpha_k * s_total - beta_k * rAB)
+
+            psi += exps_k * psi0_k
+            Hpsi += exps_k * (
+                    A1c_k
+                    + alpha_k * Aac_k
+                    + beta_k * Abc_k
+                    + (alpha_k ** 2) * Aa2c_k
+                    + (alpha_k * beta_k) * Aabc_k
+                    + (beta_k ** 2) * Ab2c_k
+            )
 
         denom = np.where(np.abs(psi) < eps, np.nan, psi)
         Eloc = Hpsi / denom

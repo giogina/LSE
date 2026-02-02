@@ -30,7 +30,9 @@ file = "SHlayers_t8_delta0.1_BO_basis-test-3-6-8-8-8_sampling-12-12-20-15-20_945
 # file = "SHlayers_t8_delta0.1_BO_basis-test-3-4-8-7-8_sampling-12-12-20-15-20_670_1.4.pkl"
 # file = "SHlayers_t6_delta0.1_BO_basis-test-3-5--1..8-8-6_sampling-12-12-24-15-24_810_1.4.pkl" # n, m =-1..6
 # file = "SHlayers_t8_delta0.1_BO_sampling-test-12-12-20-15-20-no_dens_810_1.4.pkl" # n, m = 0..8
-file = "SHlayers_t8_delta0.1_hij-h3k5_2850_*.pkl"
+# file = "SHlayers_t8_delta0.1_hij-h3k5_2850_*.pkl"
+
+file = "SHlayers_t5_delta0.1_BO_multialpha_162_1.4.pkl"
 
 # delta = -1.0: horrible.
 # delta = -0.3: not great
@@ -85,6 +87,7 @@ file = "SHlayers_t8_delta0.1_hij-h3k5_2850_*.pkl"
 # todo: plot out f(rAB).
 #  Would this be different (8 vs 13) if using h-independent tmax check?
 #  How "product-like" does the wave function behave in the first place?
+
 if "*" in file:
     for alpha in arange(1.00, 1.01, 0.1):
         for beta in arange(8.8, 9.01, 0.1):
