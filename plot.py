@@ -11,7 +11,7 @@ from glob import glob
 
 from calc import calc_F_ee, calc_F_ne, calc_AB
 from solver import solve_HS_from_layers, solve_HS
-from layers import assemble_HS
+from layers import assemble_HS, assemble_HS_multi_alpha
 
 
 def clustered_linspace(vmin, vmax, n, strength=2.5):
@@ -497,8 +497,9 @@ def plot_Psi_Eloc_by_alpha_beta(
 
 def plot_nonBO_from_files(
     file,
-    alpha,
-    beta,
+    alphas,
+    betas,
+    Rms,
     *,
     # plot-domain definition (x1,y1 grid)
     x1_min=-4.0,
@@ -548,6 +549,7 @@ def plot_nonBO_from_files(
     meta = None
     S = None
     H = None
+    frankenBasis = None
 
     for ff in files:
         print(ff)
@@ -558,10 +560,9 @@ def plot_nonBO_from_files(
             if "meta" not in layers_new:
                 raise KeyError(f"'meta' not found in {ff}")
             meta = layers_new["meta"]
-            S = np.zeros_like(next(iter(layers_new["S"].values())), dtype=np.float64)
-            H = np.zeros_like(S, dtype=np.float64)
 
-        H, S = assemble_HS(layers_new, alpha, beta, H=H, S=S, coords=meta["coords"])  # Assemble matrices in-place
+        # H, S = assemble_HS(layers_new, alpha, beta, H=H, S=S, coords=meta["coords"])  # Assemble matrices in-place
+        H, S, frankenBasis = assemble_HS_multi_alpha(layers_new, alphas=alphas, betas = betas, Rms=Rms, H=H, S=S, coords=meta["coords"])
 
         del layers_new
         gc.collect()
@@ -672,6 +673,7 @@ def plot_nonBO_from_files(
     else:
         sol_idx = np.arange(E.size)
 
+    print(E[0])
     # ---------------------------
     # Geometry cache (x2,y2,z2 -> B/A* etc)
     # ---------------------------
@@ -750,10 +752,10 @@ def plot_nonBO_from_files(
         ii = 0
         i_real = int(sol_idx[ii])
         c = C[:, i_real]
-        print("("+'+'.join([f"({float(cc / c[0])}) * rAB^{basis_idx[i][0]} " for i, cc in enumerate(c) if (basis_idx[i][1]==0 and basis_idx[i][2]==0 and basis_idx[i][3]==0 and basis_idx[i][4]==0 and basis_idx[i][5]==0)])+f")*exp(-{beta}*(rAB-1.4011)^2)")
-        print("("+'+'.join([f"({float(cc / c[0])}) * rAB^{basis_idx[i][0]} " for i, cc in enumerate(c) if (basis_idx[i][1]==1 and basis_idx[i][2]==0 and basis_idx[i][3]==0 and basis_idx[i][4]==0 and basis_idx[i][5]==0)])+f")*exp(-{beta}*(rAB-1.4011)^2)")
-        print("("+'+'.join([f"({float(cc / c[0])}) * rAB^{basis_idx[i][0]} " for i, cc in enumerate(c) if (basis_idx[i][1]==0 and basis_idx[i][2]==1 and basis_idx[i][3]==0 and basis_idx[i][4]==0 and basis_idx[i][5]==0)])+f")*exp(-{beta}*(rAB-1.4011)^2)")
-        print("("+'+'.join([f"({float(cc / c[0])}) * rAB^{basis_idx[i][0]} " for i, cc in enumerate(c) if (basis_idx[i][1]==0 and basis_idx[i][2]==0 and basis_idx[i][3]==0 and basis_idx[i][4]==1 and basis_idx[i][5]==1)])+f")*exp(-{beta}*(rAB-1.4011)^2)")
+        # print("("+'+'.join([f"({float(cc / c[0])}) * rAB^{basis_idx[i][0]} " for i, cc in enumerate(c) if (basis_idx[i][1]==0 and basis_idx[i][2]==0 and basis_idx[i][3]==0 and basis_idx[i][4]==0 and basis_idx[i][5]==0)])+f")*exp(-{beta}*(rAB-1.4011)^2)")
+        # print("("+'+'.join([f"({float(cc / c[0])}) * rAB^{basis_idx[i][0]} " for i, cc in enumerate(c) if (basis_idx[i][1]==1 and basis_idx[i][2]==0 and basis_idx[i][3]==0 and basis_idx[i][4]==0 and basis_idx[i][5]==0)])+f")*exp(-{beta}*(rAB-1.4011)^2)")
+        # print("("+'+'.join([f"({float(cc / c[0])}) * rAB^{basis_idx[i][0]} " for i, cc in enumerate(c) if (basis_idx[i][1]==0 and basis_idx[i][2]==1 and basis_idx[i][3]==0 and basis_idx[i][4]==0 and basis_idx[i][5]==0)])+f")*exp(-{beta}*(rAB-1.4011)^2)")
+        # print("("+'+'.join([f"({float(cc / c[0])}) * rAB^{basis_idx[i][0]} " for i, cc in enumerate(c) if (basis_idx[i][1]==0 and basis_idx[i][2]==0 and basis_idx[i][3]==0 and basis_idx[i][4]==1 and basis_idx[i][5]==1)])+f")*exp(-{beta}*(rAB-1.4011)^2)")
 
         geom = get_cached_geom(s_x2.val, s_y2.val, s_z2.val)
 
@@ -761,28 +763,70 @@ def plot_nonBO_from_files(
         Aa2 = geom["Aa2"]; Aab = geom["Aab"]; Ab2 = geom["Ab2"]
         s_total = geom["s_total"]
 
-        psi0 = B @ c
-        A1c = A1 @ c
-        Aac = Aa @ c
-        Abc = Ab @ c
-        Aa2c = Aa2 @ c
-        Aabc = Aab @ c
-        Ab2c = Ab2 @ c
+        N = frankenBasis.N
+        nblocks = len(frankenBasis.blocks)
 
-        if coords.endswith("_morse"):
-            exps = np.exp(-alpha * s_total - beta * (rAB - 1.4011) ** 2)
-        else:
-            exps = np.exp(-alpha * s_total - beta * rAB)
+        # sanity
+        assert c.shape[0] == nblocks * N
+        assert B.shape[1] == N
 
-        psi = exps * psi0
-        Hpsi = exps * (
-            A1c
-            + alpha * Aac
-            + beta  * Abc
-            + (alpha**2) * Aa2c
-            + (alpha*beta) * Aabc
-            + (beta**2) * Ab2c
-        )
+        # accumulators over points
+        psi = np.zeros(B.shape[0], dtype=np.float64)
+        Hpsi = np.zeros(B.shape[0], dtype=np.float64)
+
+        for k, blk, sl in frankenBasis.iter_blocks():
+            alpha_k = blk["alpha"]
+            beta_k = blk["beta"]
+            Rm_k = blk.get("Rm", None)
+            ck = c[sl]  # tile coefficients for this block, length N
+
+            # coefficient projections (pointwise vectors, length npts)
+            psi0_k = B @ ck
+            A1c_k = A1 @ ck
+            Aac_k = Aa @ ck
+            Abc_k = Ab @ ck
+            Aa2c_k = Aa2 @ ck
+            Aabc_k = Aab @ ck
+            Ab2c_k = Ab2 @ ck
+
+            # pointwise exp factor for this block
+            if coords.endswith("_morse"):
+                exps_k = np.exp(-alpha_k * s_total - beta_k * (Rm_k - rAB) ** 2)
+            else:
+                exps_k = np.exp(-alpha_k * s_total - beta_k * rAB)
+
+            psi += exps_k * psi0_k
+            Hpsi += exps_k * (
+                    A1c_k
+                    + alpha_k * Aac_k
+                    + beta_k * Abc_k
+                    + (alpha_k ** 2) * Aa2c_k
+                    + (alpha_k * beta_k) * Aabc_k
+                    + (beta_k ** 2) * Ab2c_k
+            )
+
+        # psi0 = B @ c
+        # A1c = A1 @ c
+        # Aac = Aa @ c
+        # Abc = Ab @ c
+        # Aa2c = Aa2 @ c
+        # Aabc = Aab @ c
+        # Ab2c = Ab2 @ c
+        #
+        # if coords.endswith("_morse"):
+        #     exps = np.exp(-alpha * s_total - beta * (rAB - 1.4011) ** 2)
+        # else:
+        #     exps = np.exp(-alpha * s_total - beta * rAB)
+        #
+        # psi = exps * psi0
+        # Hpsi = exps * (
+        #     A1c
+        #     + alpha * Aac
+        #     + beta  * Abc
+        #     + (alpha**2) * Aa2c
+        #     + (alpha*beta) * Aabc
+        #     + (beta**2) * Ab2c
+        # )
 
         denom = np.where(np.abs(psi) < eps, np.nan, psi)
         Eloc = Hpsi / denom
@@ -857,7 +901,7 @@ def plot_nonBO_from_files(
         ax_eloc.scatter([geom["x2"]], [geom["y2"]], [zmax2], c=["orange"], s=160, depthshade=False)
 
         ax_phi.set_title(
-            f"ψ | alpha={alpha:.6f} beta={beta:.6f}\n"  # cond(S)={cache_entry['condS']:.3e}
+            f"ψ | alpha={alphas} beta={betas} Rm={Rms}\n"  # cond(S)={cache_entry['condS']:.3e}
             f"E={E[i_real]:.10f}\n"
             f"Electron 2 fixed at: x2,y2,z2=({geom['x2']:.3f},{geom['y2']:.3f},{geom['z2']:.3f})"
         )
