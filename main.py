@@ -5,21 +5,20 @@ from sampling import *
 from coords import *
 from layers import *
 
-BO = True
+BO = False
 M = 1836.1526738  #Previously used: 1836.153
 
 # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
 h_max = 2 # Even 2 should be pretty accurate
 k_max = 5
-nm_min = 0  # improves cusps; little effect on energy
-nm_max = 3
-ij_max = 8
+nm_min = -1  # improves cusps; little effect on energy
+nm_max = 2
+ij_max = 6
 total_max = 6 # todo: test not limiting total_max, instead "rectangular" structure with hxkx.... Why beta=8 instead of 13, anyway?
 # deltas = [0.0, 0.3]
-# delta = 0.1  # TODO: Try delta-sequence instead of r12-poly.
-# Todo: delta sequence:
-# todo: run exactly this again without the h+i+j to compare.
-# todo: Test h -> h+i+j (essentially not dividing mu1, mu2 by rAB) - is that better w.r.t. beta dependence?
+delta = 0.1  # TODO: Try delta-sequence instead of r12-poly.
+
+
 for delta in [0.1]:
     nMu = 12
     nrPhi = 12

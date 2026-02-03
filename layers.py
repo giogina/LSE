@@ -151,9 +151,9 @@ def assemble_HS_multi_alpha(SH_layers, alphas, betas, Rms, coords, H=None, S=Non
         for b, beta in enumerate(betas):
             blocks_list.append({"alpha": alpha, "beta": beta, "Rm": Rms[b]})
     blocks = tuple(blocks_list)
+    print(f"({n*N} functions)")
 
     for (rAB0, s0), Sl in SH_layers["S"].items():
-        print(rAB0, s0)
         for i, b1 in enumerate(blocks):
             r = slice(i * N, (i + 1) * N)
             for j, b2 in enumerate(blocks):

@@ -30,8 +30,8 @@ plotrAB = 1.4
 # file = "SHlayers_t8_delta0.0_BO_many-low-k_810.pkl"
 
 file = "SHlayers_t6_delta0.1_multialpha_522_all.pkl"
-file = "SHlayers_t6_delta0.1_BO_multialpha_246_all.pkl"
-file = "SHlayers_t6_delta0.1_BO_multialpha_306_all.pkl"
+# file = "SHlayers_t6_delta0.1_BO_multialpha_246_all.pkl"
+# file = "SHlayers_t6_delta0.1_BO_multialpha_486_all.pkl"
 
 # really good energy (-1.1744759166422694) with alpha=0.5, 1.0, 1.1
 
@@ -102,8 +102,8 @@ if "*" in file:
                 Rms=[1.2, 1.3, 1.4, 1.5, 1.6],
                 plot_rAB_target=rAB,
                 nx1=50, ny1=50,
-                x1_min=-8, x1_max=8,
-                y1_min=-8, y1_max=8,
+                x1_min=-6, x1_max=6,
+                y1_min=-6, y1_max=6,
                 zlim_eloc=(-1.22, -1.1),
                 rcond = 1e-16,
                 savepic=f"~/Pictures/{file.replace('SHlayers_', '').replace('*.pkl', '')}_alpha{alpha:.2f}_beta{beta:.2f}_rAB{rAB}_multi-test_Eeee.png"
@@ -118,16 +118,16 @@ else:
     # plot_Psi_Eloc_by_alpha_beta(
     plot_Psi_Eloc_multi_params_from_files(
         file,
-        x1_min=-8.0,
-        x1_max= 8.0,
-        y1_min=-8.0,
-        y1_max= 8.0,
+        x1_min=-6.0,
+        x1_max= 6.0,
+        y1_min=-6.0,
+        y1_max= 6.0,
         nx1=50,
         ny1=50,
         # meta = meta,
         # SH_layers=layers,
         plot_rAB_target=plotrAB,
-        zlim_eloc=(-1.2, -1.1)
+        zlim_eloc=(-1.22, -1.1)
     )
 
 # for bb in meta["basis_idx"]:

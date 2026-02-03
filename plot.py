@@ -48,7 +48,7 @@ def plot_Psi_Eloc_multi_params_from_files(
     z2_init=0.4,
 
     # initial parameter text
-    alpha_text_init="0.76, 1.0, 1.2",
+    alpha_text_init="0.74, 0.9, 1.0",
     beta_rm_text_init="8.0 1.4011",
 ):
     """
@@ -81,10 +81,6 @@ def plot_Psi_Eloc_multi_params_from_files(
     # ---------------------------
     # helpers
     # ---------------------------
-    def clustered_linspace(vmin, vmax, n, strength=2.5):
-        u = np.linspace(-1.0, 1.0, int(n))
-        w = np.sinh(strength * u) / np.sinh(strength)
-        return 0.5 * (vmin + vmax) + 0.5 * (vmax - vmin) * w
 
     def parse_list_or_range(s: str):
         s = (s or "").strip()
@@ -178,8 +174,13 @@ def plot_Psi_Eloc_multi_params_from_files(
     # ---------------------------
     rAB = float(plot_rAB_target)
 
+    x_extra = np.array([+(rAB / 2 + 0.01), -(rAB / 2 + 0.01)], dtype=float)  # include points close to the nuclei
+    y_extra = np.array([0.0], dtype=float)
     x1_vals = clustered_linspace(x1_min, x1_max, nx1, strength=3.0)
     y1_vals = clustered_linspace(y1_min, y1_max, ny1, strength=3.5)
+    x1_vals = np.unique(np.sort(np.concatenate([x1_vals, x_extra])))
+    y1_vals = np.unique(np.sort(np.concatenate([y1_vals, y_extra])))
+
     X1, Y1 = np.meshgrid(x1_vals, y1_vals, indexing="xy")
     x1_flat = X1.ravel()
     y1_flat = Y1.ravel()
