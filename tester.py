@@ -29,9 +29,9 @@ plotrAB = 1.4
 # file = "SHlayers_t5_delta0.1_BO_multialpha_162_1.4.pkl"
 # file = "SHlayers_t8_delta0.0_BO_many-low-k_810.pkl"
 
-file = "SHlayers_t6_delta0.1_multialpha_522_all.pkl"
+# file = "SHlayers_t6_delta0.1_multialpha_522_all.pkl"
 # file = "SHlayers_t6_delta0.1_BO_multialpha_246_all.pkl"
-# file = "SHlayers_t6_delta0.1_BO_multialpha_486_all.pkl"
+file = "SHlayers_t6_delta0.1_BO_multialpha_486_all.pkl"
 
 # really good energy (-1.1744759166422694) with alpha=0.5, 1.0, 1.1
 

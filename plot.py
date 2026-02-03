@@ -246,9 +246,9 @@ def plot_Psi_Eloc_multi_params_from_files(
             shell_weight,
             coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X
         )
-
-        Bee, Fee = calc_F_ee(x1_flat, y1_flat, rAB, coords, basis_idx, delta, X)
-        Bne, Fne_1, Fne_alpha = calc_F_ne(x1_flat, y1_flat, rAB, coords, basis_idx, X)
+        #
+        # Bee, Fee = calc_F_ee(x1_flat, y1_flat, rAB, coords, basis_idx, delta, X)
+        # Bne, Fne_1, Fne_alpha = calc_F_ne(x1_flat, y1_flat, rAB, coords, basis_idx, X)
 
         Ab2 = c_beta2 * B
 
@@ -262,11 +262,11 @@ def plot_Psi_Eloc_multi_params_from_files(
             "Aa2": Aa2,
             "Aab": Aab,
             "Ab2": Ab2,
-            "Bee": Bee,
-            "Fee": Fee,
-            "Bne": Bne,
-            "Fne_1": Fne_1,
-            "Fne_alpha": Fne_alpha,
+            # "Bee": Bee,
+            # "Fee": Fee,
+            # "Bne": Bne,
+            # "Fne_1": Fne_1,
+            # "Fne_alpha": Fne_alpha,
         }
         geom_cache[key] = entry
         return entry
@@ -379,17 +379,12 @@ def plot_Psi_Eloc_multi_params_from_files(
         psi  = np.zeros(B.shape[0], dtype=np.float64)
         Hpsi = np.zeros(B.shape[0], dtype=np.float64)
 
-        # cusp accumulators (full-wavefunction cusp)
-        Bee = geom["Bee"]; Fee = geom["Fee"]
-        Bne = geom["Bne"]; Fne_1 = geom["Fne_1"]; Fne_alpha = geom["Fne_alpha"]
-
-        psi_ee = np.zeros(B.shape[0], dtype=np.float64)
-        F_ee   = np.zeros(B.shape[0], dtype=np.float64)
-        psi_ne = np.zeros(B.shape[0], dtype=np.float64)
-        F_ne   = np.zeros(B.shape[0], dtype=np.float64)
-
         coords = meta["coords"]
         rAB_local = rAB
+
+        # cusp accumulators (full-wavefunction cusp)
+        Bee, Fee = calc_F_ee(x1_flat, y1_flat, rAB, coords, meta["basis_idx"], meta["delta"], frankenBasis, meta["X"])
+        Bne, Fne, _ = calc_F_ne(x1_flat, y1_flat, rAB, coords, meta["basis_idx"], frankenBasis, meta["X"])
 
         N = frankenBasis.N
         nblocks = len(frankenBasis.blocks)
@@ -428,14 +423,19 @@ def plot_Psi_Eloc_multi_params_from_files(
                 + (2.0 * meta["M_inv"] * beta_k) * psi0_k
             )
 
-            # cusp: accumulate full numerator/denominator consistently per block
-            if np.ndim(Bee) > 0:
-                psi_ee += exps_k * (Bee @ ck)
-                F_ee   += exps_k * (Fee @ ck)
+            # # cusp: accumulate full numerator/denominator consistently per block
+            # if np.ndim(Bee) > 0:
+            #     psi_ee += exps_k * (Bee @ ck)
+            #     F_ee   += exps_k * (Fee @ ck)
+            #
+            #     Fne_k = Fne_1 + Fne_alpha * alpha_k
+            #     psi_ne += exps_k * (Bne @ ck)
+            #     F_ne   += exps_k * (Fne_k @ ck)
 
-                Fne_k = Fne_1 + Fne_alpha * alpha_k
-                psi_ne += exps_k * (Bne @ ck)
-                F_ne   += exps_k * (Fne_k @ ck)
+        psi_ee = Bee @ c_full
+        F_ee = Fee @ c_full
+        psi_ne = Bne @ c_full
+        F_ne = Fne @ c_full
 
         denom = np.where(np.abs(psi) < eps, np.nan, psi)
         Eloc = Hpsi / denom
@@ -483,7 +483,7 @@ def plot_Psi_Eloc_multi_params_from_files(
             xmin, xmax = -3.0, 3.0
             ymin, ymax = 0.0, 1.0
             mask = (X1 < xmin) | (X1 > xmax) | (Y1 < ymin) | (Y1 > ymax)
-            Zee = Zee.copy(); Zne = Zne.copy()
+            Zee = Zee.copy();  Zne = Zne.copy()
             Zee[mask] = np.nan
             Zne[mask] = np.nan
 
@@ -492,8 +492,8 @@ def plot_Psi_Eloc_multi_params_from_files(
 
             ax_cusp.set_xlim(-3.0, 3.0)
             ax_cusp.set_ylim(0.0, 3.0)
-            ax_cusp.set_zlim(-0.03, 0.03)
-            ax_cusp.set_title("Cusp functions (should be 0)\n(plasma: e-e, viridis: e-n)")
+            ax_cusp.set_zlim(-0.05, 0.05)
+            ax_cusp.set_title("Cusp functions (should be 0)\n(red: e-e, green: e-n)")
 
         # mark electron 2 position
         zmax1 = ax_phi.get_zlim()[1]
@@ -1398,7 +1398,7 @@ def plot_nonBO_from_files(
 
             ax_cusp.set_xlim(-3.0, 3.0)
             ax_cusp.set_ylim(0.0, 3.0)
-            ax_cusp.set_zlim(-0.05, 0.05)
+            ax_cusp.set_zlim(-0.35, 0.35)
 
         ax_phi.clear()
         ax_eloc.clear()

@@ -1441,7 +1441,7 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
         return B, A_1, A_alpha, A_beta, A_alpha2, A_alphabeta, c_beta2, P
 
 
-def calc_F_ne(x1, y1, rAB, coords, basis_idx, X = None):
+def calc_F_ne(x1, y1, rAB, coords, basis_idx, frankenBasis = None, X = None):
     rA1 = np.sqrt((x1 + rAB / 2.) ** 2 + y1 ** 2.)
     rB1 = np.sqrt((x1 - rAB / 2.) ** 2 + y1 ** 2.)  # vectorized distances
     s1 = rA1 + rB1
@@ -1459,11 +1459,10 @@ def calc_F_ne(x1, y1, rAB, coords, basis_idx, X = None):
     n_min = np.min(n_idx)
     n_max = np.max(n_idx)
     k_max = np.max(k_idx)
-    print(n_min, n_max)
 
     P = rA1.size
-
-    if coords.startswith("xs12mu"):  # todo: implement for new morse s12mu
+    
+    if coords == "s12mu" or (coords == "s12mu_morse" and frankenBasis is None):
         r12_p = power_table(r12, k_max)
         s1_p = power_table(s1, n_max, n_min)
         mu1_p = power_table(mu1, i_max)
@@ -1484,6 +1483,44 @@ def calc_F_ne(x1, y1, rAB, coords, basis_idx, X = None):
         F_ne_1 = B * (part_12_diff + part_21_diff)
         B = B * (part_12 + part_21)
         F_ne_alpha = -B
+        
+    elif coords == "s12mu_morse":
+
+        r12_p = power_table(r12, k_max)  # k>=0 in your current code; extend if you allow k<0
+        s1_p = power_table(s1, n_max, n_min)
+        mu1_p = power_table(mu1, i_max)
+
+        B0 = np.broadcast_to(rAB ** h_idx, (P, matSize)).copy()
+        B0 *= r12_p[:, k_idx]
+
+        part_12 = mu1_p[:, i_idx] * (mu2 ** j_idx) * s1_p[:, n_idx] * (s2 ** m_idx)
+        part_21 = mu1_p[:, j_idx] * (mu2 ** i_idx) * s1_p[:, m_idx] * (s2 ** n_idx)
+
+        part_12_diff = (np.where(m_idx != 0, m_idx * mu1_p[:, i_idx] * mu2 ** j_idx * s1_p[:, n_idx] * s2 ** (m_idx - 1), 0.0)
+                      + np.where(j_idx != 0, j_idx * mu1_p[:, i_idx] * mu2 ** (j_idx - 1) * s1_p[:, n_idx] * s2 ** m_idx / rAB, 0.0))
+        part_21_diff = (np.where(n_idx != 0, n_idx * mu1_p[:, j_idx] * mu2 ** i_idx * s1_p[:, m_idx] * s2 ** (n_idx - 1), 0.0)
+                      + np.where(i_idx != 0, i_idx * mu1_p[:, j_idx] * mu2 ** (i_idx - 1) * s1_p[:, m_idx] * s2 ** n_idx / rAB, 0.0))
+
+        F1_0 = B0 * (part_12_diff + part_21_diff)
+        B0 = B0 * (part_12 + part_21)
+        Falpha0 = -B0
+
+        nb = len(frankenBasis.blocks)
+        N = matSize
+        Ntot = nb * N
+        B = np.zeros((P, Ntot), dtype=np.float64)
+        F_ne_1 = np.zeros((P, Ntot), dtype=np.float64)
+        F_ne_alpha = np.zeros((P, Ntot), dtype=np.float64)
+
+        for k, blk, sl in frankenBasis.iter_blocks():
+            alpha_k = blk["alpha"]
+            beta_k = blk["beta"]
+            Rm_k = blk.get("Rm", 0.0)
+
+            exp_grid = np.exp(-alpha_k * (s1 + s2) - beta_k * (rAB - Rm_k) ** 2)  # (P,)
+
+            B[:, sl] = B0 * exp_grid[:, None]
+            F_ne_1[:, sl] = (F1_0 + Falpha0 * alpha_k) * exp_grid[:, None]  # in this case, just incorporate the alpha immediately
 
     elif coords == "rij":
         r12_p = power_table(r12, k_max)
@@ -1512,7 +1549,7 @@ def calc_F_ne(x1, y1, rAB, coords, basis_idx, X = None):
 
     return B, F_ne_1, F_ne_alpha  # (combine with chosen alpha value later)
 
-def calc_F_ee(x1, y1, rAB, coords, basis_idx, delta, X = None):
+def calc_F_ee(x1, y1, rAB, coords, basis_idx, delta, frankenBasis = None, X = None):
 
     rA1 = np.sqrt((x1 + rAB/2) ** 2 + y1 ** 2)
     rB1 = np.sqrt((x1 - rAB/2) ** 2 + y1 ** 2)  # vectorized distances
@@ -1535,7 +1572,7 @@ def calc_F_ee(x1, y1, rAB, coords, basis_idx, delta, X = None):
     k_factors_ee = np.where(k_idx == 1, 1.0, np.where(k_idx == 0, -delta, 0.0))
     k_factors_B = np.where(k_idx == 0, 1.0, 0.0)  # only non-vanishing parts of B at r12=0
 
-    if coords.startswith("xs12mu"):
+    if coords == "s12mu" or (coords == "s12mu_morse" and frankenBasis is None):
         s1_p = power_table(s1, nm_max, nm_min)
         mu1_p = power_table(mu1, ij_max)
 
@@ -1544,6 +1581,30 @@ def calc_F_ee(x1, y1, rAB, coords, basis_idx, delta, X = None):
         B *= 2 * mu1_p[:, i_idx+j_idx] * s1_p[:, n_idx+m_idx]  # mu1^i*mu2^j*s1^n*s2^m+mu1^j*mu2^i*s1^m*s2^n, but mu1=mu2 and s1=s2
         F_ee = B * k_factors_ee[None, :] # compute diff(B, r12) at r12=0
         B *= k_factors_B  # set r12 = 0 in B
+    elif coords == "s12mu_morse":
+        s1_p = power_table(s1, nm_max, nm_min)
+        mu1_p = power_table(mu1, ij_max)
+        B0 = np.broadcast_to(rAB**h_idx, (P, matSize)).copy()
+        B0 *= 2 * mu1_p[:, i_idx+j_idx] * s1_p[:, n_idx+m_idx]
+        F0 = B0 * k_factors_ee[None, :] # compute diff(B, r12) at r12=0
+        B0 *= k_factors_B  # set r12 = 0 in B
+
+        nb = len(frankenBasis.blocks)
+        N = matSize
+        Ntot = nb * N
+        B = np.zeros((P, Ntot), dtype=np.float64)
+        F_ee = np.zeros((P, Ntot), dtype=np.float64)
+
+        s_sum = 2.0 * s1 # r12=0 => s2=s1 => s1+s2 = 2*s1
+
+        for k, blk, sl in frankenBasis.iter_blocks():
+            alpha_k = blk["alpha"]
+            beta_k = blk["beta"]
+            Rm_k = blk.get("Rm", 0.0)  # or whatever default you want if absent
+            exp_grid = np.exp(-alpha_k * s_sum - beta_k * (rAB - Rm_k) ** 2)
+            B[:, sl] = B0 * exp_grid[:, None]
+            F_ee[:, sl] = F0 * exp_grid[:, None]
+
     elif coords == "rij":
         rA1_p = power_table(rA1, ni_max)
         rB1_p = power_table(rB1, ni_max)

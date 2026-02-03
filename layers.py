@@ -189,7 +189,6 @@ def _assemble_HS_alphas_piece(SH_layers, alpha1, alpha2, beta1, beta2, Rm1, Rm2,
     H_tile += Hl * exps
     return S_tile, H_tile
 
-
 def save_layers(label, rAB):
     global layers
     savefile = f"SHlayers_t{tMax}_delta{layers['meta']['delta']}{'_BO' if BO else ''}{'_' + label if label is not None else ''}_{bsize}_{rAB}.pkl"
