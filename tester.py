@@ -4,7 +4,7 @@ from glob import glob
 import numpy as np
 from numpy.ma.core import arange
 
-from plot import plot_Psi_Eloc_by_alpha_beta, plot_nonBO_from_files
+from plot import plot_Psi_Eloc_by_alpha_beta, plot_nonBO_from_files, plot_Psi_Eloc_multi_params_from_files
 
 # file = "SHlayers_t8_n-i_m-j_delta0_BO.pkl" # pretty good!
 # file = "SHlayers_t8_nm-khalf_delta0_BO_363.pkl"
@@ -23,16 +23,17 @@ plotrAB = 1.4
 # file = "SHlayers_t5_delta0.1_BO_s12mu-ij3_180_1.4.pkl"
 
 # file = "SHlayers_t8_delta0.1_h3k5_1926_*.pkl"  # Best at: beta = 8, alpha = 0.9, with E = -1.16404
-# file = "SHlayers_t8_delta0.1_BO_sampling-test-16-12-20-23-30_810_1.4.pkl"
-# file = "SHlayers_t8_delta0.1_BO_sampling-test-12-12-20-15-30-1.0_810_1.4.pkl"
-file = "SHlayers_t8_delta0.1_BO_basis-test-3-6-8-8-8_sampling-12-12-20-15-20_945_1.4.pkl"
-# file = "SHlayers_t8_delta0.1_BO_basis-test-3-4-8-8-8_sampling-12-12-20-15-20_675_1.4.pkl"
-# file = "SHlayers_t8_delta0.1_BO_basis-test-3-4-8-7-8_sampling-12-12-20-15-20_670_1.4.pkl"
-# file = "SHlayers_t6_delta0.1_BO_basis-test-3-5--1..8-8-6_sampling-12-12-24-15-24_810_1.4.pkl" # n, m =-1..6
-# file = "SHlayers_t8_delta0.1_BO_sampling-test-12-12-20-15-20-no_dens_810_1.4.pkl" # n, m = 0..8
+
 # file = "SHlayers_t8_delta0.1_hij-h3k5_2850_*.pkl"
 
-file = "SHlayers_t5_delta0.1_BO_multialpha_162_1.4.pkl"
+# file = "SHlayers_t5_delta0.1_BO_multialpha_162_1.4.pkl"
+# file = "SHlayers_t8_delta0.0_BO_many-low-k_810.pkl"
+
+file = "SHlayers_t6_delta0.1_multialpha_522_all.pkl"
+file = "SHlayers_t6_delta0.1_BO_multialpha_246_all.pkl"
+file = "SHlayers_t6_delta0.1_BO_multialpha_306_all.pkl"
+
+# really good energy (-1.1744759166422694) with alpha=0.5, 1.0, 1.1
 
 # delta = -1.0: horrible.
 # delta = -0.3: not great
@@ -90,46 +91,42 @@ file = "SHlayers_t5_delta0.1_BO_multialpha_162_1.4.pkl"
 
 if "*" in file:
     for alpha in arange(1.00, 1.01, 0.1):
-        for beta in arange(8.8, 9.01, 0.1):
+        for beta in arange(8.9, 8.91, 0.1):
             print(alpha, beta)
             rAB = 1.4
 
             plot_nonBO_from_files(
                 file,
-                alpha=alpha,
-                beta=beta,
+                alphas=[0.3, 1.0, 2.0, 3.0],
+                betas=[9.0, 9.0, 9.0, 9.0, 9.0],
+                Rms=[1.2, 1.3, 1.4, 1.5, 1.6],
                 plot_rAB_target=rAB,
                 nx1=50, ny1=50,
                 x1_min=-8, x1_max=8,
                 y1_min=-8, y1_max=8,
                 zlim_eloc=(-1.22, -1.1),
                 rcond = 1e-16,
-                savepic=f"~/Pictures/{file.replace('SHlayers_', '').replace('*.pkl', '')}_alpha{alpha:.2f}_beta{beta:.2f}_rAB{rAB}_Eeee.png"
+                savepic=f"~/Pictures/{file.replace('SHlayers_', '').replace('*.pkl', '')}_alpha{alpha:.2f}_beta{beta:.2f}_rAB{rAB}_multi-test_Eeee.png"
             )
 
 else:
-    if file == "SHlayers_10.pkl":
-        with open("SHlayers_10.pkl", "rb") as f:
-            layers = pickle.load(f)
-        with open("meta_10.pkl", "rb") as f:
-            meta = pickle.load(f)["meta"]
-    else:
-        with open(file, "rb") as f:
-            layers = pickle.load(f)
-        meta = layers["meta"]
 
-    plot_Psi_Eloc_by_alpha_beta(
+    with open(file, "rb") as f:
+        layers = pickle.load(f)
+    meta = layers["meta"]
+
+    # plot_Psi_Eloc_by_alpha_beta(
+    plot_Psi_Eloc_multi_params_from_files(
+        file,
         x1_min=-8.0,
         x1_max= 8.0,
         y1_min=-8.0,
         y1_max= 8.0,
         nx1=50,
         ny1=50,
-        meta = meta,
-        SH_layers=layers,
+        # meta = meta,
+        # SH_layers=layers,
         plot_rAB_target=plotrAB,
-        alpha_values=np.arange(0.4, 1.3, 0.005),
-        beta_values=np.arange(-3.0, 20.0, 0.01),
         zlim_eloc=(-1.2, -1.1)
     )
 

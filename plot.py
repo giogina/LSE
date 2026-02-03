@@ -20,6 +20,525 @@ def clustered_linspace(vmin, vmax, n, strength=2.5):
     w = np.sinh(strength * u) / np.sinh(strength)  # still in [-1,1], denser near 0
     return 0.5*(vmin+vmax) + 0.5*(vmax-vmin)*w
 
+def plot_Psi_Eloc_multi_params_from_files(
+    file,
+    *,
+    # fixed geometry needed for exp(-beta*rAB) and distance construction
+    plot_rAB_target,
+
+    # plot-domain definition (x1,y1 grid)
+    x1_min=-4.0,
+    x1_max=4.0,
+    y1_min=-4.0,
+    y1_max=4.0,
+    nx1=140,
+    ny1=140,
+
+    # numerics / plot options
+    only_negative_E=True,
+    eps=1e-16,
+    zlim_eloc=None,
+    psi_levels=128,
+    eloc_levels=128,
+    rcond=1e-17,
+
+    # initial electron-2 position
+    x2_init=0.4,
+    y2_init=0.4,
+    z2_init=0.4,
+
+    # initial parameter text
+    alpha_text_init="0.76, 1.0, 1.2",
+    beta_rm_text_init="8.0 1.4011",
+):
+    """
+    Like plot_Psi_Eloc_by_alpha_beta, but:
+      - NO alpha/beta sliders.
+      - You enter sets of alphas and (beta,Rm) pairs in text boxes.
+      - Click Apply -> rebuild H,S via assemble_HS_multi_alpha, solve, and keep plotting.
+
+    Text formats:
+      alphas:
+        - list: "0.6,0.8,1.0"
+        - range: "0.6:1.2:7"  meaning linspace(min,max,n)
+      beta Rm pairs:
+        - "0.5 1.4011; 1.0 1.4100"
+        - or one pair per line.
+    """
+    import gc
+    import pickle
+    from glob import glob
+
+    import numpy as np
+    import matplotlib as mpl
+    import matplotlib.pyplot as plt
+    from matplotlib.widgets import Slider, TextBox, Button
+
+    from calc import calc_F_ee, calc_F_ne, calc_AB
+    from solver import solve_HS
+    from layers import assemble_HS_multi_alpha
+
+    # ---------------------------
+    # helpers
+    # ---------------------------
+    def clustered_linspace(vmin, vmax, n, strength=2.5):
+        u = np.linspace(-1.0, 1.0, int(n))
+        w = np.sinh(strength * u) / np.sinh(strength)
+        return 0.5 * (vmin + vmax) + 0.5 * (vmax - vmin) * w
+
+    def parse_list_or_range(s: str):
+        s = (s or "").strip()
+        if not s:
+            return np.array([], float)
+
+        # range form: "a:b:n"
+        if ":" in s and "," not in s:
+            a, b, n = [x.strip() for x in s.split(":")]
+            return np.linspace(float(a), float(b), int(n), dtype=float)
+
+        # list form: "a,b,c"
+        return np.array([float(x) for x in s.split(",") if x.strip() != ""], dtype=float)
+
+    def parse_beta_rm_pairs(s: str):
+        s = (s or "").strip()
+        if not s:
+            return np.empty((0, 2), float)
+        parts = []
+        for line in s.replace(";", "\n").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            toks = line.split()
+            if len(toks) != 2:
+                raise ValueError(f"Bad beta/Rm line: '{line}'. Expected: '<beta> <Rm>'")
+            b, rm = toks
+            parts.append((float(b), float(rm)))
+        return np.array(parts, dtype=float)
+
+    def surface_grid_colored_discrete(ax, X, Y, Z, cmap_name="viridis", vmin=None, vmax=None, nlevels=128):
+        Z = np.asarray(Z, dtype=float)
+        if vmin is None:
+            vmin = float(np.nanmin(Z))
+        if vmax is None:
+            vmax = float(np.nanmax(Z))
+        if (not np.isfinite(vmin)) or (not np.isfinite(vmax)) or (vmin == vmax):
+            vmin = float(np.nanmin(Z[np.isfinite(Z)])) if np.any(np.isfinite(Z)) else 0.0
+            vmax = vmin + 1.0
+
+        bounds = np.linspace(vmin, vmax, int(nlevels) + 1)
+        norm = mpl.colors.BoundaryNorm(bounds, ncolors=plt.get_cmap(cmap_name).N, clip=True)
+        cmap = plt.get_cmap(cmap_name)
+
+        fc = cmap(norm(Z))
+        nanmask = ~np.isfinite(Z)
+        fc[nanmask, 3] = 0.0
+
+        ax.plot_surface(
+            X, Y, Z,
+            facecolors=fc,
+            rstride=1, cstride=1,
+            linewidth=0.0,
+            antialiased=False,
+            shade=False,
+        )
+
+    def surface_grid_colored(ax, X, Y, Z, cmap_name, vmin=None, vmax=None, alpha=0.6):
+        Z = np.asarray(Z, dtype=float)
+        if vmin is None:
+            vmin = float(np.nanmin(Z))
+        if vmax is None:
+            vmax = float(np.nanmax(Z))
+        cmap = plt.get_cmap(cmap_name)
+        norm = mpl.colors.Normalize(vmin=vmin, vmax=vmax, clip=True)
+        fc = cmap(norm(Z))
+        fc[..., 3] *= float(alpha)
+        fc[~np.isfinite(Z), 3] = 0.0
+
+        ax.plot_surface(
+            X, Y, Z,
+            facecolors=fc,
+            rstride=1, cstride=1,
+            linewidth=0.0,
+            antialiased=False,
+            shade=False,
+        )
+
+    # ---------------------------
+    # load files list
+    # ---------------------------
+    if "*" in file:
+        files = sorted(glob(file))
+        if not files:
+            raise FileNotFoundError(f"No files matched glob: {file}")
+    else:
+        files = [file]
+
+    # ---------------------------
+    # fixed plot grid (electron 1)
+    # ---------------------------
+    rAB = float(plot_rAB_target)
+
+    x1_vals = clustered_linspace(x1_min, x1_max, nx1, strength=3.0)
+    y1_vals = clustered_linspace(y1_min, y1_max, ny1, strength=3.5)
+    X1, Y1 = np.meshgrid(x1_vals, y1_vals, indexing="xy")
+    x1_flat = X1.ravel()
+    y1_flat = Y1.ravel()
+    P1 = x1_flat.size
+
+    rA1 = np.sqrt((x1_flat + 0.5 * rAB) ** 2 + y1_flat ** 2)
+    rB1 = np.sqrt((x1_flat - 0.5 * rAB) ** 2 + y1_flat ** 2)
+    s1 = rA1 + rB1
+    mu1 = (rA1 - rB1) / rAB
+
+    w1 = np.ones(P1, dtype=np.float64)
+    shell_weight = 1.0
+
+    # ---------------------------
+    # state (rebuilt on Apply)
+    # ---------------------------
+    meta = None
+    H = None
+    S = None
+    frankenBasis = None
+    E = None
+    C = None
+    sol_idx = None
+
+    geom_cache = {}  # keyed by rounded (x2,y2,z2)
+
+    def reset_geom_cache():
+        geom_cache.clear()
+
+    def get_cached_geom(x2v, y2v, z2v):
+        key = (round(float(x2v), 3), round(float(y2v), 3), round(float(z2v), 3))
+        if key in geom_cache:
+            return geom_cache[key]
+
+        x2 = np.array([key[0]], dtype=np.float64)
+        y2 = np.array([key[1]], dtype=np.float64)
+        z2 = np.array([key[2]], dtype=np.float64)
+
+        rA2 = np.sqrt((x2 + 0.5 * rAB) ** 2 + y2 ** 2 + z2 ** 2)
+        rB2 = np.sqrt((x2 - 0.5 * rAB) ** 2 + y2 ** 2 + z2 ** 2)
+        s2 = rA2 + rB2
+        mu2 = (rA2 - rB2) / rAB
+
+        s_total = s1 + s2
+        w2 = np.ones_like(x2)
+
+        coords = meta["coords"]
+        basis_idx = meta["basis_idx"]
+        delta = meta["delta"]
+        M1M = meta["M1M"]
+        M_inv = meta["M_inv"]
+        Fij = meta["Fij"]
+        Fji = meta["Fji"]
+        X = meta["X"]
+
+        B, A1, Aa, Ab, Aa2, Aab, c_beta2, _P = calc_AB(
+            x1_flat, y1_flat,
+            x2, y2, z2,
+            rAB,
+            s_total, s1, s2,
+            mu1, mu2,
+            w1, w2,
+            shell_weight,
+            coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X
+        )
+
+        Bee, Fee = calc_F_ee(x1_flat, y1_flat, rAB, coords, basis_idx, delta, X)
+        Bne, Fne_1, Fne_alpha = calc_F_ne(x1_flat, y1_flat, rAB, coords, basis_idx, X)
+
+        Ab2 = c_beta2 * B
+
+        entry = {
+            "x2": key[0], "y2": key[1], "z2": key[2],
+            "s_total": s_total,  # length P1
+            "B": B,
+            "A1": A1,
+            "Aa": Aa,
+            "Ab": Ab,
+            "Aa2": Aa2,
+            "Aab": Aab,
+            "Ab2": Ab2,
+            "Bee": Bee,
+            "Fee": Fee,
+            "Bne": Bne,
+            "Fne_1": Fne_1,
+            "Fne_alpha": Fne_alpha,
+        }
+        geom_cache[key] = entry
+        return entry
+
+    def rebuild_and_solve(alphas, betas, Rms):
+        nonlocal meta, H, S, frankenBasis, E, C, sol_idx
+
+        meta = None
+        H = None
+        S = None
+        frankenBasis = None
+
+        print("Rebuilding H/S from files...")
+        for ff in files:
+            print(" ", ff)
+            with open(ff, "rb") as f:
+                layers_new = pickle.load(f)
+
+            if meta is None:
+                if "meta" not in layers_new:
+                    raise KeyError(f"'meta' not found in {ff}")
+                meta = layers_new["meta"]
+
+            H, S, frankenBasis = assemble_HS_multi_alpha(
+                layers_new,
+                alphas=alphas,
+                betas=betas,
+                Rms=Rms,
+                H=H,
+                S=S,
+                coords=meta["coords"]
+            )
+
+            del layers_new
+            gc.collect()
+
+        print("Solving...")
+        E, C, cond = solve_HS(H, S, rcond)
+        idx = np.argsort(np.real(E))
+        E = np.real(E[idx])
+        C = np.real(C[:, idx])
+
+        if only_negative_E:
+            sol_idx = np.where(E < 0)[0]
+            if sol_idx.size == 0:
+                sol_idx = np.arange(E.size)
+        else:
+            sol_idx = np.arange(E.size)
+
+        print("E0:", E[sol_idx[0]] if sol_idx.size else E[0])
+        reset_geom_cache()
+
+    # ---------------------------
+    # figure + widgets
+    # ---------------------------
+    fig = plt.figure(figsize=(18, 8))
+    ax_phi  = fig.add_subplot(1, 3, 1, projection="3d")
+    ax_eloc = fig.add_subplot(1, 3, 2, projection="3d")
+    ax_cusp = fig.add_subplot(1, 3, 3, projection="3d")
+    fig.subplots_adjust(bottom=0.38)
+
+    ax_eloc.view_init(elev=0, azim=30)
+    ax_cusp.view_init(elev=0, azim=90)
+
+    # Text + Apply
+    ax_alpha_txt = fig.add_axes([0.10, 0.30, 0.62, 0.04])
+    ax_pairs_txt = fig.add_axes([0.10, 0.25, 0.62, 0.04])
+    ax_apply     = fig.add_axes([0.74, 0.25, 0.16, 0.09])
+
+    t_alpha = TextBox(ax_alpha_txt, "alphas", initial=alpha_text_init)
+    t_pairs = TextBox(ax_pairs_txt, "beta Rm", initial=beta_rm_text_init)
+    b_apply = Button(ax_apply, "Apply")
+
+    # sliders: i and x2/y2/z2
+    ax_i  = fig.add_axes([0.10, 0.18, 0.80, 0.035])
+    ax_x2 = fig.add_axes([0.10, 0.12, 0.25, 0.035])
+    ax_y2 = fig.add_axes([0.38, 0.12, 0.25, 0.035])
+    ax_z2 = fig.add_axes([0.66, 0.12, 0.25, 0.035])
+
+    s_i  = Slider(ax_i,  "i",  0, 1, valinit=0, valstep=1)
+    s_x2 = Slider(ax_x2, "x2", 0.0, 3.0, valinit=float(x2_init))
+    s_y2 = Slider(ax_y2, "y2", 0.0, 3.0, valinit=float(y2_init))
+    s_z2 = Slider(ax_z2, "z2", 0.0, 3.0, valinit=float(z2_init))
+
+    def update_i_slider_max(n):
+        nonlocal s_i
+        ax_i.cla()
+        s_i = Slider(ax_i, "i", 0, max(0, n - 1), valinit=min(int(s_i.val), max(0, n - 1)), valstep=1)
+        s_i.on_changed(redraw)
+
+    def redraw(_=None):
+        if meta is None or E is None or C is None or sol_idx is None or frankenBasis is None:
+            return
+
+        # keep i slider consistent
+        if int(s_i.val) > sol_idx.size - 1 or int(getattr(s_i, "valmax", 0)) != sol_idx.size - 1:
+            update_i_slider_max(sol_idx.size)
+
+        ii = int(s_i.val)
+        i_real = int(sol_idx[ii])
+        c_full = C[:, i_real]
+
+        geom = get_cached_geom(s_x2.val, s_y2.val, s_z2.val)
+
+        B   = geom["B"];   A1  = geom["A1"];  Aa = geom["Aa"];  Ab = geom["Ab"]
+        Aa2 = geom["Aa2"]; Aab = geom["Aab"]; Ab2 = geom["Ab2"]
+        s_total = geom["s_total"]
+
+        # pointwise accumulators
+        psi  = np.zeros(B.shape[0], dtype=np.float64)
+        Hpsi = np.zeros(B.shape[0], dtype=np.float64)
+
+        # cusp accumulators (full-wavefunction cusp)
+        Bee = geom["Bee"]; Fee = geom["Fee"]
+        Bne = geom["Bne"]; Fne_1 = geom["Fne_1"]; Fne_alpha = geom["Fne_alpha"]
+
+        psi_ee = np.zeros(B.shape[0], dtype=np.float64)
+        F_ee   = np.zeros(B.shape[0], dtype=np.float64)
+        psi_ne = np.zeros(B.shape[0], dtype=np.float64)
+        F_ne   = np.zeros(B.shape[0], dtype=np.float64)
+
+        coords = meta["coords"]
+        rAB_local = rAB
+
+        N = frankenBasis.N
+        nblocks = len(frankenBasis.blocks)
+        assert c_full.shape[0] == nblocks * N
+        assert B.shape[1] == N
+
+        for _k, blk, sl in frankenBasis.iter_blocks():
+            alpha_k = float(blk["alpha"])
+            beta_k  = float(blk["beta"])
+            Rm_k    = blk.get("Rm", None)
+            ck = c_full[sl]
+
+            psi0_k  = B @ ck
+            A1c_k   = A1 @ ck
+            Aac_k   = Aa @ ck
+            Abc_k   = Ab @ ck
+            Aa2c_k  = Aa2 @ ck
+            Aabc_k  = Aab @ ck
+            Ab2c_k  = Ab2 @ ck
+
+            if coords.endswith("_morse"):
+                exps_k = np.exp(-alpha_k * s_total - beta_k * (float(Rm_k) - rAB_local) ** 2)
+            else:
+                exps_k = np.exp(-alpha_k * s_total - beta_k * rAB_local)
+
+            print(f"alpha = {blk['alpha']}, (beta, Rm) = ({blk['beta']}, {blk['Rm']}) contribution {np.linalg.norm(exps_k * psi0_k)}")
+            rm = (rAB_local - float(Rm_k))
+            psi  += exps_k * psi0_k
+            Hpsi += exps_k * (
+                A1c_k
+                + alpha_k * Aac_k
+                + beta_k * rm * Abc_k
+                + (alpha_k ** 2) * Aa2c_k
+                + (alpha_k * beta_k * rm) * Aabc_k
+                + ((beta_k * rm) ** 2) * Ab2c_k  # todo: for nonBO, implement correct assembly of blocks (including extra rm factors and additive _beta_1 compontent!)
+                + (2.0 * meta["M_inv"] * beta_k) * psi0_k
+            )
+
+            # cusp: accumulate full numerator/denominator consistently per block
+            if np.ndim(Bee) > 0:
+                psi_ee += exps_k * (Bee @ ck)
+                F_ee   += exps_k * (Fee @ ck)
+
+                Fne_k = Fne_1 + Fne_alpha * alpha_k
+                psi_ne += exps_k * (Bne @ ck)
+                F_ne   += exps_k * (Fne_k @ ck)
+
+        denom = np.where(np.abs(psi) < eps, np.nan, psi)
+        Eloc = Hpsi / denom
+
+        # SSE metric vs eigenvalue
+        E_i = float(E[i_real])
+        diff = Eloc - E_i
+        epsilon = float(np.nansum(diff * diff))
+
+        # normalize psi for display
+        psi_disp = psi / (np.nanmax(np.abs(psi)) + 1e-300)
+        if np.nanmax(psi_disp) < np.abs(np.nanmin(psi_disp)):
+            psi_disp *= -1.0
+
+        psi_grid  = psi_disp.reshape(Y1.shape)
+        Eloc_grid = Eloc.reshape(Y1.shape)
+
+        ax_phi.clear()
+        ax_eloc.clear()
+        ax_cusp.clear()
+
+        surface_grid_colored_discrete(ax_phi, X1, Y1, psi_grid, cmap_name="viridis", nlevels=int(psi_levels))
+
+        if zlim_eloc is not None:
+            surface_grid_colored_discrete(
+                ax_eloc, X1, Y1, Eloc_grid, cmap_name="viridis",
+                vmin=float(zlim_eloc[0]), vmax=float(zlim_eloc[1]),
+                nlevels=int(eloc_levels)
+            )
+            ax_eloc.set_zlim(float(zlim_eloc[0]), float(zlim_eloc[1]))
+        else:
+            surface_grid_colored_discrete(ax_eloc, X1, Y1, Eloc_grid, cmap_name="viridis", nlevels=int(eloc_levels))
+
+        # cusp surfaces if available
+        if np.ndim(Bee) > 0:
+            denom_ee = np.where(np.abs(psi_ee) < eps, np.nan, psi_ee)
+            denom_ne = np.where(np.abs(psi_ne) < eps, np.nan, psi_ne)
+
+            cusp_ee = (F_ee / denom_ee) - 0.5
+            cusp_ne = (F_ne / denom_ne) + 1.0
+
+            Zee = cusp_ee.reshape(Y1.shape)
+            Zne = cusp_ne.reshape(Y1.shape)
+
+            xmin, xmax = -3.0, 3.0
+            ymin, ymax = 0.0, 1.0
+            mask = (X1 < xmin) | (X1 > xmax) | (Y1 < ymin) | (Y1 > ymax)
+            Zee = Zee.copy(); Zne = Zne.copy()
+            Zee[mask] = np.nan
+            Zne[mask] = np.nan
+
+            surface_grid_colored(ax_cusp, X1, Y1, Zee, cmap_name="plasma",  vmin=-2.0, vmax=2.0, alpha=0.5)
+            surface_grid_colored(ax_cusp, X1, Y1, Zne, cmap_name="viridis", vmin=-2.0, vmax=2.0, alpha=0.5)
+
+            ax_cusp.set_xlim(-3.0, 3.0)
+            ax_cusp.set_ylim(0.0, 3.0)
+            ax_cusp.set_zlim(-0.03, 0.03)
+            ax_cusp.set_title("Cusp functions (should be 0)\n(plasma: e-e, viridis: e-n)")
+
+        # mark electron 2 position
+        zmax1 = ax_phi.get_zlim()[1]
+        zmax2 = ax_eloc.get_zlim()[1]
+        ax_phi.scatter([geom["x2"]], [geom["y2"]], [zmax1], c=["orange"], s=160, depthshade=False)
+        ax_eloc.scatter([geom["x2"]], [geom["y2"]], [zmax2], c=["orange"], s=160, depthshade=False)
+
+        ax_phi.set_title(
+            f"ψ | i={i_real}, E={E[i_real]:.10f}\n"
+            f"Electron 2 at: ({geom['x2']:.3f},{geom['y2']:.3f},{geom['z2']:.3f})"
+        )
+        ax_eloc.set_title(f"Local energy | epsilon={epsilon:.10e}")
+
+        ax_phi.set_xlabel("x1");  ax_phi.set_ylabel("y1");  ax_phi.set_zlabel("ψ")
+        ax_eloc.set_xlabel("x1"); ax_eloc.set_ylabel("y1"); ax_eloc.set_zlabel("Eloc")
+
+        fig.canvas.draw_idle()
+
+    def on_apply(_evt):
+        alphas = parse_list_or_range(t_alpha.text)
+        pairs = parse_beta_rm_pairs(t_pairs.text)
+        if alphas.size == 0:
+            raise ValueError("No alphas provided.")
+        if pairs.shape[0] == 0:
+            raise ValueError("No (beta,Rm) pairs provided.")
+
+        betas = pairs[:, 0]
+        Rms   = pairs[:, 1]
+
+        rebuild_and_solve(alphas, betas, Rms)
+        update_i_slider_max(sol_idx.size)
+        redraw()
+
+    b_apply.on_clicked(on_apply)
+
+    # redraw on geometry changes
+    s_i.on_changed(redraw)
+    s_x2.on_changed(redraw)
+    s_y2.on_changed(redraw)
+    s_z2.on_changed(redraw)
+
+    # initial build + show
+    on_apply(None)
+    plt.show(block=True)
+
+
 def plot_Psi_Eloc_by_alpha_beta(
     *,
 

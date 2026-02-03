@@ -844,8 +844,6 @@ def calc_H_alphabeta_s12mu_morse(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, Minv, M
     # c_beta_j = inv_rAB * (inv_mu2 * cos2AB - inv_mu2 * cos2BA - 2) * Minv
     # c_beta_h = 2 * inv_rAB * Minv * one
 
-    Req = 1.4  # For numerical reasons: split into Rmax = Req + dR
-
     cbn = 2. * inv_s1 * (cos1AB + cos1BA) * Minv
     cbm = 2. * inv_s2 * (cos2AB + cos2BA) * Minv
     cbi = 2. * (inv_mu1 * cos1AB - inv_mu1 * cos1BA - 2.) * Minv
@@ -862,9 +860,7 @@ def calc_H_alphabeta_s12mu_morse(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, Minv, M
     c_alphabeta_1 = -cab
 
     c_alpha2_1 = -2 * M1M - (cosA1B + cosA2B) - (cos1A2 + cos1B2) * Minv
-    c_beta2_1 = 4. * Minv # * rm**2
-    # c_beta2_dR_1 = -8. * rm * Minv
-    # c_beta2_dR2_1 = 4. * Minv
+    c_beta2_1 = -4. * Minv # * rm**2
 
     coef_vector_1 = np.stack([c_n2, c_n, c_k2, c_k, c_m2, c_m, c_i2, c_i, c_j2, c_j, c_h2, zero, c_ni, c_mj, c_nj, c_nm, c_jk, c_nh, c_ik, c_mh, c_nk, c_mi, c_jh, c_mk, c_ij, c_ih, c_1], axis=1)
     coef_vector_alpha = np.stack([zero, c_alpha_n, zero, c_alpha_k, zero, c_alpha_m, zero, c_alpha_i, zero, c_alpha_j, zero, c_alpha_h, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, zero, c_alpha_1], axis=1)
@@ -880,6 +876,7 @@ def calc_H_alphabeta_s12mu_morse(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, Minv, M
     H_beta_ji = coef_vector_beta @ Fji
     H_alpha2 = c_alpha2_1[:, None]
     H_alphabeta = c_alphabeta_1[:, None]
+    # H_beta2 = c_beta2_1
 
     return H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_beta_ij, H_beta_ji, H_alpha2, H_alphabeta, c_beta2_1
 
@@ -1280,12 +1277,6 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
         P1 = rA1.size
         P2 = rA2.size
         P = P1 * P2
-
-        # For shifted-morse functionality
-        A_beta_dR = None
-        A_alphabeta_dR = None
-        c_beta2_dR = None
-        c_beta2_dR2 = None
 
         if coords == "stmu":
             H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_beta_ij, H_beta_ji, H_alpha2, H_alphabeta, c_beta2 = calc_H_alphabeta_stmu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1, s2, s, mu1, mu2, delta)

@@ -8,7 +8,7 @@ Hl_alpha = None
 Hl_alpha2 = None
 Hl_alphabeta = None
 Hl_beta = None
-Hlc_beta2 = None # Just the coeffs [c_beta2, c_beta2_dR, c_beta2_dR2]
+Hlc_beta2 = None # Just the coeffs c_beta2
 bsize = None
 tMax = None
 BO = False
@@ -24,7 +24,7 @@ def init_layers(coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X, tmax, bo):
         "H_alpha2": {},
         "H_alphabeta": {},
         "H_beta": {},
-        "c_beta2": {},
+        "c_beta2": 0.0,
         "meta": {
             "coords": coords,
             "basis_idx": basis_idx,
@@ -47,7 +47,7 @@ def init_rAB_layers(bSize):
     Hl_alpha2 = np.zeros((bSize, bSize), dtype=np.float64)
     Hl_alphabeta = np.zeros((bSize, bSize), dtype=np.float64)
     Hl_beta = np.zeros((bSize, bSize), dtype=np.float64)
-    Hlc_beta2 = [0., 0., 0.]
+    Hlc_beta2 = 0.
 
 def accumulate_rAB_layers(B, A_1, A_alpha, A_beta, A_alpha2, A_alphabeta, c_beta2):
     global Sl, Hl_1, Hl_alpha, Hl_alpha2, Hl_alphabeta, Hl_beta, Hlc_beta2
@@ -75,7 +75,7 @@ def accumulate_layers(rAB, s):
     layers["H_alpha2"][rAB, s] = Hl_alpha2
     layers["H_alphabeta"][rAB, s] = Hl_alphabeta
     layers["H_beta"][rAB, s] = Hl_beta
-    layers["c_beta2"][rAB, s] = Hlc_beta2
+    layers["c_beta2"] = Hlc_beta2
 
 def rel_asym(A):
     nrm = np.linalg.norm(A)
@@ -84,7 +84,7 @@ def rel_asym(A):
     return np.linalg.norm(A - A.T) / nrm
 
 # todo: implement call with proper dR range. Look for all 1.4011 that need adapting
-def assemble_HS(SH_layers, alpha, beta, Rm=1.4, H = None, S = None, debug = False, coords="s12mu"):
+def assemble_HS(SH_layers, alpha, beta, Rm=1.4011, H = None, S = None, debug = False, coords="s12mu"):
 
     if S is None: S = np.zeros_like(next(iter(SH_layers["S"].values())), dtype=np.float64)
     if H is None: H = np.zeros_like(S, dtype=np.float64)
@@ -100,15 +100,14 @@ def assemble_HS(SH_layers, alpha, beta, Rm=1.4, H = None, S = None, debug = Fals
         Hl += SH_layers["H_1"][rAB0, s0]
         Hl += SH_layers["H_alpha"][rAB0, s0] * alpha
         Hl += SH_layers["H_alpha2"][rAB0, s0] * alpha**2
-        rm = (rAB0 - Rm) if coords == "s12mu_morse" else 1.
+        rm = (rAB0 - Rm) if coords == "s12mu_morse" else 1. # (For s12mu_morse, the rm factor is removed from c_beta_* and c_alphabeta_*
         Hl += SH_layers["H_beta"][rAB0, s0] * rm * beta
         Hl += SH_layers["H_alphabeta"][rAB0, s0] * rm * alpha*beta
 
-        # todo: temp commented out (test with nonBO computation to compare)
-        # cf = SH_layers["c_beta2"][rAB0, s0] * beta**2  # constant factor from _beta and _beta2 that can be directly applied to S
-        # if coords == "s12mu_morse":
-        #     cf += 2. * SH_layers["meta"]["M_inv"] * beta  # was left out there
-        # Hl += Sl * cf
+        cf = SH_layers.get("c_beta2", -4. * SH_layers["meta"]["M_inv"]) * rm**2 * beta**2  # constant factor from _beta and _beta2 that can be directly applied to S  (fallback for older calcs)
+        if coords == "s12mu_morse":
+            cf += 2. * SH_layers["meta"]["M_inv"] * beta  # was left out there from c_beta_1
+        Hl += Sl * cf
 
         H += Hl * exps
 
@@ -139,14 +138,13 @@ class StitchedBasis:
             yield k, blk, sl
 
 
-def assemble_HS_multi_alpha(SH_layers, alphas, betas, Rms=[1.4], coords="s12mu"):
+def assemble_HS_multi_alpha(SH_layers, alphas, betas, Rms, coords, H=None, S=None):
 
     N = next(iter(SH_layers["S"].values())).shape[0]
     n = len(alphas)*len(betas)
-
-    S = np.zeros((n*N, n*N), dtype=np.float64)
-    H = np.zeros((n*N, n*N), dtype=np.float64)
-    blocks = tuple()
+    if H is None:
+        S = np.zeros((n*N, n*N), dtype=np.float64)
+        H = np.zeros((n*N, n*N), dtype=np.float64)
 
     blocks_list = []
     for alpha in alphas:
@@ -155,6 +153,7 @@ def assemble_HS_multi_alpha(SH_layers, alphas, betas, Rms=[1.4], coords="s12mu")
     blocks = tuple(blocks_list)
 
     for (rAB0, s0), Sl in SH_layers["S"].items():
+        print(rAB0, s0)
         for i, b1 in enumerate(blocks):
             r = slice(i * N, (i + 1) * N)
             for j, b2 in enumerate(blocks):
@@ -182,11 +181,10 @@ def _assemble_HS_alphas_piece(SH_layers, alpha1, alpha2, beta1, beta2, Rm1, Rm2,
     Hl += SH_layers["H_beta"][rAB0, s0] * rm * beta2
     Hl += SH_layers["H_alphabeta"][rAB0, s0] * rm * alpha2 * beta2
 
-    # todo: temp commented out (test with nonBO computation to compare)
-    # cf = SH_layers["c_beta2"][rAB0, s0] * beta**2  # constant factor from _beta and _beta2 that can be directly applied to S
-    # if coords == "s12mu_morse":
-    #     cf += 2. * SH_layers["meta"]["M_inv"] * beta  # was left out there
-    # Hl += Sl * cf
+    cf = SH_layers["c_beta2"] * rm**2 * beta2**2  # constant factor from _beta and _beta2 that can be directly applied to S
+    if coords == "s12mu_morse":
+        cf += 2. * SH_layers["meta"]["M_inv"] * beta2  # was left out there since it doesn't multiply rm
+    Hl += SH_layers["S"][rAB0, s0] * cf
 
     H_tile += Hl * exps
     return S_tile, H_tile

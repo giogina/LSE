@@ -1,6 +1,6 @@
 import numpy as np
 from scipy.linalg import eig, eigh
-from layers import assemble_HS, assemble_HS_multi_alpha
+from layers import assemble_HS_multi_alpha
 
 
 def diag_rescale_generalized(H, S, eps=1e-300):
@@ -99,7 +99,8 @@ def cond(S):
 def solve_HS_from_layers(layers, alpha, beta, basis_idx, rcond = 1e-15, coords="s12mu"):   # alpha = 0.98
 
     # H, S = assemble_HS(layers, alpha, beta, coords=coords)
-    H, S, frankenBasis = assemble_HS_multi_alpha(layers, alphas=[0.3, 0.7, 1.0, 1.5, 2.0], betas = [beta], Rms=[1.4], coords=coords)
+    # H, S, frankenBasis = assemble_HS_multi_alpha(layers, alphas=[0.3, 1.0, 1.5, 2.5], betas = [8.5, 9.0, 9.5], Rms=[1.3, 1.4, 1.5], coords=coords)
+    H, S, frankenBasis = assemble_HS_multi_alpha(layers, alphas=[0.5, 1.0, 1.5, 2.5], betas = [8.0], Rms=[1.4], coords=coords)
     return solve_HS(H, S, rcond=rcond), frankenBasis
 
 def solve_HS(H, S, rcond = 1e-15):   # alpha = 0.98

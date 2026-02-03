@@ -9,23 +9,23 @@ BO = True
 M = 1836.1526738  #Previously used: 1836.153
 
 # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
-h_max = 3 # Even 2 should be pretty accurate
+h_max = 2 # Even 2 should be pretty accurate
 k_max = 5
 nm_min = 0  # improves cusps; little effect on energy
-nm_max = 2
+nm_max = 3
 ij_max = 8
-total_max = 5 # todo: test not limiting total_max, instead "rectangular" structure with hxkx.... Why beta=8 instead of 13, anyway?
+total_max = 6 # todo: test not limiting total_max, instead "rectangular" structure with hxkx.... Why beta=8 instead of 13, anyway?
 # deltas = [0.0, 0.3]
 # delta = 0.1  # TODO: Try delta-sequence instead of r12-poly.
 # Todo: delta sequence:
 # todo: run exactly this again without the h+i+j to compare.
 # todo: Test h -> h+i+j (essentially not dividing mu1, mu2 by rAB) - is that better w.r.t. beta dependence?
 for delta in [0.1]:
-    nMu = 16
+    nMu = 12
     nrPhi = 12
-    nrS = 24  # 30-60 are optimal according to numerical tests (any more, and accumulation of numerical errors starts taking over)
+    nrS = 20  # 30-60 are optimal according to numerical tests (any more, and accumulation of numerical errors starts taking over)
     nrS12 = 15  # Odd -> s1=s2 allowed
-    sMax = 24
+    sMax = 20
 
     startFromrAB = 0.0 # Use when resuming a calculation
     upTorAB = 12.0
@@ -40,6 +40,8 @@ for delta in [0.1]:
     # coords = "stmu"
     # coords = "s12mu"
     # coords = "s12uv_morse"
+
+    separateFiles = False
 
     if BO:
         M1M = 1
@@ -57,11 +59,12 @@ for delta in [0.1]:
     start = time.time()
     nrP = 0
 
+    if not separateFiles: init_layers(coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X, total_max, BO)
+
     for kab, rAB in enumerate(abRange):
         if rAB < startFromrAB or rAB > upTorAB: continue
         s_shells, sW = build_s_shells(rAB, Ks=nrS, s_max=sMax, gamma = 3.0)
-        init_layers(coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X, total_max, BO)
-
+        if separateFiles: init_layers(coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X, total_max, BO)
         for ks, s in enumerate(s_shells):
             s1_vals, s2_vals, splitW = split_s(s, rAB, Ku=nrS12, gamma = 4.0)  # high gamma: a lot more s1 ~ s2
             init_rAB_layers(bSize)
@@ -73,7 +76,8 @@ for delta in [0.1]:
                 accumulate_rAB_layers(B, A_1, A_alpha, A_beta, A_alpha2, A_alphabeta, c_beta2)
                 nrP += P
 
-            accumulate_layers(rAB, s)
             print(ks, rAB, s, nrP, time.time() - start)
+            accumulate_layers(rAB, s)
 
-        save_layers(label, rAB)
+        if separateFiles: save_layers(label, rAB)
+    if not separateFiles: save_layers(label, "all")
