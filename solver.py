@@ -106,21 +106,24 @@ def solve_HS_from_layers(layers, alpha, beta, basis_idx, rcond = 1e-15, coords="
 def solve_HS(H, S, rcond = 1e-15):   # alpha = 0.98
 
     H, S, q = diag_rescale_generalized(H, S)
-
+    print("Removing linearly dependent functions...")
     X, keep, w = reduce_by_overlap(S, rcond)
-    print(f"{int(np.count_nonzero(keep) / len(keep) * 100)}% of dimensions ({np.count_nonzero(keep)} functions) kept")
-
+    print(f"    {int(np.count_nonzero(keep) / len(keep) * 100)}% of dimensions ({np.count_nonzero(keep)} functions) kept")
+    print(f"Solving...")
     Hp = X.T @ H @ X
     E, Y = eig(Hp)
     C = q[:, None] * (X @ Y)
 
-    return np.real(E), np.real(C), cond(S)
+    # print(sensitivity_test(H, S))
+    # print(gen_residual_norm(H,S,E[0],C[:, 0]))
 
-    # idx = np.argmin(np.real(E))
-    # E0 = E[idx]
-    # y0 = Y[:, idx]
-    # print("residual: ", gen_residual_norm(H,S,E0,X @ y0).max())
-    # print("E =", np.real(E0))
+    idx = np.argmin(np.real(E))
+    E0 = E[idx]
+    y0 = Y[:, idx]
+    print("residual: ", gen_residual_norm(H,S,E0,X @ y0).max())
+    print("E =", np.real(E0))
+
+    return np.real(E), np.real(C), cond(S)
 
 
 # Todo: 1): Make sure numerical cancellations in integration loop don't destroy significant digits. Sample mu1 from smallest-pos, smallest-neg, next-pos etc. Ensure integrals over mu1^odd cancel. (Especially inv_mu1_2 could lead to catastropic cancellations - test.)

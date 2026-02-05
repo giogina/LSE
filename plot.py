@@ -20,23 +20,163 @@ def clustered_linspace(vmin, vmax, n, strength=2.5):
     w = np.sinh(strength * u) / np.sinh(strength)  # still in [-1,1], denser near 0
     return 0.5*(vmin+vmax) + 0.5*(vmax-vmin)*w
 
+def eval_psi_eloc_on_points(
+    *,
+    rAB_vals, x1_vals, y1_vals,
+    x2v, y2v, z2v,
+    c_full, frankenBasis, meta,
+    eps,
+    psi_scale
+):
+    """
+    Evaluate psi and Eloc on a 2D grid defined by (rAB_vals, x1_vals) with y1 fixed.
+    Returns: (RAB_grid, X1_grid, psi_grid, eloc_grid)
+
+    Shapes:
+      RAB_grid, X1_grid, psi_grid, eloc_grid are (nrAB, nx1)
+    """
+    rAB_vals = np.asarray(rAB_vals, dtype=np.float64)
+    x1_vals  = np.asarray(x1_vals,  dtype=np.float64)
+    y1_vals  = np.asarray(y1_vals,  dtype=np.float64)
+    if y1_vals.size == 1:
+        y1_vals = np.full_like(x1_vals, float(y1_vals[0]), dtype=np.float64)
+    if y1_vals.shape != x1_vals.shape:
+        raise ValueError("y1_vals must be same shape as x1_vals (or scalar/len=1).")
+
+    nx = x1_vals.size
+    nr = rAB_vals.size
+
+    coords    = meta["coords"]
+    basis_idx = meta["basis_idx"]
+    delta     = meta["delta"]
+    M1M       = meta["M1M"]
+    M_inv     = meta["M_inv"]
+    Fij       = meta["Fij"]
+    Fji       = meta["Fji"]
+    Xmeta     = meta["X"]
+
+    # electron 2 fixed (lab coords), but distances depend on rAB
+    x2 = np.array([float(x2v)], dtype=np.float64)
+    y2 = np.array([float(y2v)], dtype=np.float64)
+    z2 = np.array([float(z2v)], dtype=np.float64)
+    w2 = np.ones_like(x2)
+    shell_weight = 1.0
+
+    # output grids (nr, nx)
+    psi_grid  = np.full((nr, nx), np.nan, dtype=np.float64)
+    eloc_grid = np.full((nr, nx), np.nan, dtype=np.float64)
+
+    N = frankenBasis.N
+    nblocks = len(frankenBasis.blocks)
+    assert c_full.shape[0] == nblocks * N
+
+    # loop rAB -> build 1D line operators -> project -> accumulate blocks
+    for ir, rAB_local in enumerate(rAB_vals):
+        # electron 1 line points
+        x1_flat = x1_vals
+        y1_flat = y1_vals
+
+        too_close = (np.abs(x1_flat - (-0.5 * rAB_local)) < 1e-3) | (np.abs(x1_flat - (0.5 * rAB_local)) < 1e-3)
+
+        rA1 = np.sqrt((x1_flat + 0.5 * rAB_local) ** 2 + y1_flat ** 2)
+        rB1 = np.sqrt((x1_flat - 0.5 * rAB_local) ** 2 + y1_flat ** 2)
+        s1  = rA1 + rB1
+        mu1 = (rA1 - rB1) / rAB_local
+        w1  = np.ones(nx, dtype=np.float64)
+
+        # electron 2 distances for this rAB
+        rA2 = np.sqrt((x2 + 0.5 * rAB_local) ** 2 + y2 ** 2 + z2 ** 2)
+        rB2 = np.sqrt((x2 - 0.5 * rAB_local) ** 2 + y2 ** 2 + z2 ** 2)
+        s2  = rA2 + rB2
+        mu2 = (rA2 - rB2) / rAB_local
+
+        s_total = s1 + s2  # (nx,)
+        B, A1, Aa, Ab, Aa2, Aab, c_beta2, _P = calc_AB(
+            x1_flat, y1_flat,
+            x2, y2, z2,
+            float(rAB_local),
+            s_total, s1, s2,
+            mu1, mu2,
+            w1, w2,
+            shell_weight,
+            coords, basis_idx, delta, M1M, M_inv, Fij, Fji, Xmeta
+        )
+        Ab2 = c_beta2 * B
+
+        # accumulators along x1
+        psi  = np.zeros(nx, dtype=np.float64)
+        Hpsi = np.zeros(nx, dtype=np.float64)
+
+        for _k, blk, sl in frankenBasis.iter_blocks():
+            alpha_k = float(blk["alpha"])
+            beta_k  = float(blk["beta"])
+            Rm_k    = blk.get("Rm", None)
+            ck = c_full[sl]
+
+            psi0_k = B   @ ck
+            A1c_k  = A1  @ ck
+            Aac_k  = Aa  @ ck
+            Abc_k  = Ab  @ ck
+            Aa2c_k = Aa2 @ ck
+            Aabc_k = Aab @ ck
+            Ab2c_k = Ab2 @ ck
+
+            if coords.endswith("_morse"):
+                exps_k = np.exp(-alpha_k * s_total - beta_k * (float(Rm_k) - float(rAB_local)) ** 2)
+                rm = (float(rAB_local) - float(Rm_k))
+                Hpsi += exps_k * (
+                    A1c_k
+                    + alpha_k * Aac_k
+                    + beta_k * rm * Abc_k
+                    + (alpha_k ** 2) * Aa2c_k
+                    + (alpha_k * beta_k * rm) * Aabc_k
+                    + ((beta_k * rm) ** 2) * Ab2c_k
+                    + (2.0 * meta["M_inv"] * beta_k) * psi0_k
+                )
+            else:
+                exps_k = np.exp(-alpha_k * s_total - beta_k * float(rAB_local))
+                Hpsi += exps_k * (
+                    A1c_k
+                    + alpha_k * Aac_k
+                    + beta_k * Abc_k
+                    + (alpha_k ** 2) * Aa2c_k
+                    + (alpha_k * beta_k) * Aabc_k
+                    + (beta_k ** 2) * Ab2c_k
+                )
+
+            psi += exps_k * psi0_k
+
+        denom = np.where(np.abs(psi) < eps, np.nan, psi)
+        Eloc  = Hpsi / denom
+
+        Eloc[too_close] = np.nan
+
+        # fixed scaling: keeps true rAB dependence
+        psi_grid[ir, :] = psi_scale * psi
+        eloc_grid[ir, :] = Eloc
+
+    RAB_grid, X1_grid = np.meshgrid(rAB_vals, x1_vals, indexing="ij")  # (nr,nx)
+    return RAB_grid, X1_grid, psi_grid, eloc_grid
+
+
 def plot_Psi_Eloc_multi_params_from_files(
     file,
     *,
     # fixed geometry needed for exp(-beta*rAB) and distance construction
-    plot_rAB_target,
+    plot_rAB_target = 1.4,
 
     # plot-domain definition (x1,y1 grid)
-    x1_min=-4.0,
-    x1_max=4.0,
-    y1_min=-4.0,
-    y1_max=4.0,
-    nx1=140,
-    ny1=140,
+    xy_max = 4.0,
+    nx1=40,
+
+    # rAB-x1 surface plot domain
+    rAB_surf_min=None,  # if None: plot_rAB_target - 0.7
+    rAB_surf_max=None,  # if None: plot_rAB_target + 0.7
+    y1_line_fixed=0.0,  # y1 fixed for the rAB-x1 surface
 
     # numerics / plot options
     only_negative_E=True,
-    eps=1e-16,
+    eps=1e-12,
     zlim_eloc=None,
     psi_levels=128,
     eloc_levels=128,
@@ -48,8 +188,10 @@ def plot_Psi_Eloc_multi_params_from_files(
     z2_init=0.4,
 
     # initial parameter text
-    alpha_text_init="0.74, 0.9, 1.0",
-    beta_rm_text_init="8.0 1.4011",
+    alpha_text_init="0.2, 0.5, 0.8, 1.1",  # 0.2,
+    # beta_rm_text_init="7.6 1.2; 7.8 1.3; 8.0 1.4",
+    # alpha_text_init="0.8",
+    beta_rm_text_init="8.0 1.4",
 ):
     """
     Like plot_Psi_Eloc_by_alpha_beta, but:
@@ -78,6 +220,9 @@ def plot_Psi_Eloc_multi_params_from_files(
     from solver import solve_HS
     from layers import assemble_HS_multi_alpha
 
+    nrAB=nx1  # rAB resolution for the surface
+    nx1_line=nx1  # x1 resolution for the surface (y1 fixed to 0)
+    ny1=nx1
     # ---------------------------
     # helpers
     # ---------------------------
@@ -176,8 +321,8 @@ def plot_Psi_Eloc_multi_params_from_files(
 
     x_extra = np.array([+(rAB / 2 + 0.01), -(rAB / 2 + 0.01)], dtype=float)  # include points close to the nuclei
     y_extra = np.array([0.0], dtype=float)
-    x1_vals = clustered_linspace(x1_min, x1_max, nx1, strength=3.0)
-    y1_vals = clustered_linspace(y1_min, y1_max, ny1, strength=3.5)
+    x1_vals = clustered_linspace(-xy_max, xy_max, nx1, strength=3.0)
+    y1_vals = clustered_linspace(-xy_max, xy_max, ny1, strength=3.5)
     x1_vals = np.unique(np.sort(np.concatenate([x1_vals, x_extra])))
     y1_vals = np.unique(np.sort(np.concatenate([y1_vals, y_extra])))
 
@@ -303,7 +448,6 @@ def plot_Psi_Eloc_multi_params_from_files(
             del layers_new
             gc.collect()
 
-        print("Solving...")
         E, C, cond = solve_HS(H, S, rcond)
         idx = np.argsort(np.real(E))
         E = np.real(E[idx])
@@ -322,51 +466,64 @@ def plot_Psi_Eloc_multi_params_from_files(
     # ---------------------------
     # figure + widgets
     # ---------------------------
-    fig = plt.figure(figsize=(18, 8))
-    ax_phi  = fig.add_subplot(1, 3, 1, projection="3d")
-    ax_eloc = fig.add_subplot(1, 3, 2, projection="3d")
-    ax_cusp = fig.add_subplot(1, 3, 3, projection="3d")
-    fig.subplots_adjust(bottom=0.38)
+    fig = plt.figure(figsize=(18, 12))
+    ax_phi = fig.add_subplot(2, 3, 1, projection="3d")
+    ax_eloc = fig.add_subplot(2, 3, 2, projection="3d")
+    ax_cusp = fig.add_subplot(2, 3, 3, projection="3d")
+
+    ax_phi_R = fig.add_subplot(2, 3, 4, projection="3d")  # psi(rAB,x1)
+    ax_eloc_R = fig.add_subplot(2, 3, 5, projection="3d")  # eloc(rAB,x1)
+
+    fig.subplots_adjust(
+        left=0.05,
+        right=0.98,
+        bottom=0.1,  # was 0.08; slightly tighter
+        top=0.95,
+        wspace=0.15,
+        hspace=0.15
+    )
+    for ax in (ax_phi, ax_eloc, ax_cusp, ax_phi_R, ax_eloc_R):
+        ax.margins(x=0, y=0, z=0)
+        ax.set_proj_type('ortho')
 
     ax_eloc.view_init(elev=0, azim=30)
     ax_cusp.view_init(elev=0, azim=90)
+    ax_phi_R.view_init(elev=0, azim=-90)
 
-    # Text + Apply
-    ax_alpha_txt = fig.add_axes([0.10, 0.30, 0.62, 0.04])
-    ax_pairs_txt = fig.add_axes([0.10, 0.25, 0.62, 0.04])
-    ax_apply     = fig.add_axes([0.74, 0.25, 0.16, 0.09])
+    h_txt = 0.032  # Row heights
+    h_sl = 0.020
+    y_sl = 0.010
+    y_txt = y_sl + h_sl + 0.010
+
+    x0 = 0.06
+    gap = 0.012
+    w_btn = 0.12
+    w_txt_total = 0.98 - x0 - gap - w_btn  # total width available for both text fields
+    w_txt = (w_txt_total - gap) * 0.4
+
+    ax_alpha_txt = fig.add_axes([x0, y_txt, w_txt, h_txt])
+    ax_pairs_txt = fig.add_axes([x0 + w_txt + gap, y_txt, w_txt, h_txt])
+    ax_apply = fig.add_axes([x0 + 2 * w_txt + 2 * gap, y_txt, w_btn, h_txt])
 
     t_alpha = TextBox(ax_alpha_txt, "alphas", initial=alpha_text_init)
     t_pairs = TextBox(ax_pairs_txt, "beta Rm", initial=beta_rm_text_init)
     b_apply = Button(ax_apply, "Apply")
 
-    # sliders: i and x2/y2/z2
-    ax_i  = fig.add_axes([0.10, 0.18, 0.80, 0.035])
-    ax_x2 = fig.add_axes([0.10, 0.12, 0.25, 0.035])
-    ax_y2 = fig.add_axes([0.38, 0.12, 0.25, 0.035])
-    ax_z2 = fig.add_axes([0.66, 0.12, 0.25, 0.035])
+    w_sl = (0.98 - x0 - 2 * gap) / 3.0   # Sliders row (x2/y2/z2)
+    ax_x2 = fig.add_axes([x0, y_sl, w_sl, h_sl])
+    ax_y2 = fig.add_axes([x0 + w_sl + gap, y_sl, w_sl, h_sl])
+    ax_z2 = fig.add_axes([x0 + 2 * (w_sl + gap), y_sl, w_sl, h_sl])
 
-    s_i  = Slider(ax_i,  "i",  0, 1, valinit=0, valstep=1)
     s_x2 = Slider(ax_x2, "x2", 0.0, 3.0, valinit=float(x2_init))
     s_y2 = Slider(ax_y2, "y2", 0.0, 3.0, valinit=float(y2_init))
     s_z2 = Slider(ax_z2, "z2", 0.0, 3.0, valinit=float(z2_init))
 
-    def update_i_slider_max(n):
-        nonlocal s_i
-        ax_i.cla()
-        s_i = Slider(ax_i, "i", 0, max(0, n - 1), valinit=min(int(s_i.val), max(0, n - 1)), valstep=1)
-        s_i.on_changed(redraw)
 
     def redraw(_=None):
         if meta is None or E is None or C is None or sol_idx is None or frankenBasis is None:
             return
 
-        # keep i slider consistent
-        if int(s_i.val) > sol_idx.size - 1 or int(getattr(s_i, "valmax", 0)) != sol_idx.size - 1:
-            update_i_slider_max(sol_idx.size)
-
-        ii = int(s_i.val)
-        i_real = int(sol_idx[ii])
+        i_real = 0
         c_full = C[:, i_real]
 
         geom = get_cached_geom(s_x2.val, s_y2.val, s_z2.val)
@@ -502,13 +659,68 @@ def plot_Psi_Eloc_multi_params_from_files(
         ax_eloc.scatter([geom["x2"]], [geom["y2"]], [zmax2], c=["orange"], s=160, depthshade=False)
 
         ax_phi.set_title(
-            f"ψ | i={i_real}, E={E[i_real]:.10f}\n"
-            f"Electron 2 at: ({geom['x2']:.3f},{geom['y2']:.3f},{geom['z2']:.3f})"
+            f"ψ | i={i_real}, E={E[i_real]:.10f}"
+            # f"Electron 2 at: ({geom['x2']:.3f},{geom['y2']:.3f},{geom['z2']:.3f})"
         )
         ax_eloc.set_title(f"Local energy | epsilon={epsilon:.10e}")
 
         ax_phi.set_xlabel("x1");  ax_phi.set_ylabel("y1");  ax_phi.set_zlabel("ψ")
         ax_eloc.set_xlabel("x1"); ax_eloc.set_ylabel("y1"); ax_eloc.set_zlabel("Eloc")
+
+
+        ax_phi_R.clear()
+        ax_eloc_R.clear()
+
+        if rAB_surf_min is None:
+            rmin = float(plot_rAB_target) - 0.7
+        else:
+            rmin = float(rAB_surf_min)
+
+        if rAB_surf_max is None:
+            rmax = float(plot_rAB_target) + 0.7
+        else:
+            rmax = float(rAB_surf_max)
+
+        rAB_vals = np.linspace(rmin, rmax, int(nrAB), dtype=np.float64)
+
+        # x1 line grid (reuse your clustered_linspace for nicer focus near 0)
+        x1_line_vals = clustered_linspace(-0.7-xy_max, -0.7+xy_max, int(nx1_line), strength=3.0) # shift by -0.7 such that clustering happens at x=-0.7
+        y1_line_vals = np.array([float(y1_line_fixed)], dtype=np.float64)
+
+        _, _, psi_ref_grid, _ = eval_psi_eloc_on_points(rAB_vals=np.array([1.4]), x1_vals=np.array([-0.70011]), y1_vals=np.array([0.0]), x2v=s_x2.val, y2v=s_y2.val, z2v=s_z2.val, c_full=c_full, frankenBasis=frankenBasis, meta=meta, eps=eps, psi_scale=1.0)
+        psi_scale = 1.0 / float(psi_ref_grid[0, 0]) if abs(float(psi_ref_grid[0, 0])) > 0 else 1.0
+
+        RABg, X1g, psi_R, eloc_R = eval_psi_eloc_on_points(
+            rAB_vals=rAB_vals, x1_vals=x1_line_vals, y1_vals=y1_line_vals,
+            x2v=s_x2.val, y2v=s_y2.val, z2v=s_z2.val,
+            c_full=c_full, frankenBasis=frankenBasis, meta=meta, eps=eps, psi_scale=psi_scale)
+
+        mask_r = (RABg < 1.0) | (RABg > 2.0)
+        eloc_R = np.where(mask_r, np.nan, eloc_R)
+        ax_eloc_R.set_xlim(1.0, 2.0)
+
+        surface_grid_colored_discrete(ax_phi_R,  RABg, X1g, psi_R,  cmap_name="viridis", nlevels=int(psi_levels))
+
+        if zlim_eloc is not None:
+            surface_grid_colored_discrete(
+                ax_eloc_R, RABg, X1g, eloc_R,
+                cmap_name="viridis",
+                vmin=float(zlim_eloc[0]), vmax=float(zlim_eloc[1]),
+                nlevels=int(eloc_levels)
+            )
+            ax_eloc_R.set_zlim(float(zlim_eloc[0]), float(zlim_eloc[1]))
+        else:
+            surface_grid_colored_discrete(ax_eloc_R, RABg, X1g, eloc_R, cmap_name="viridis", nlevels=int(eloc_levels))
+
+        ax_phi_R.set_xlabel("rAB")
+        ax_phi_R.set_ylabel("x1 (y1=0)")
+        ax_phi_R.set_zlabel("ψ")
+        ax_phi_R.set_title("ψ(rAB, x1) with y1=0")
+
+        ax_eloc_R.set_xlabel("rAB")
+        ax_eloc_R.set_ylabel("x1 (y1=0)")
+        ax_eloc_R.set_zlabel("Eloc")
+        ax_eloc_R.set_title("Eloc(rAB, x1) with y1=0")
 
         fig.canvas.draw_idle()
 
@@ -524,13 +736,13 @@ def plot_Psi_Eloc_multi_params_from_files(
         Rms   = pairs[:, 1]
 
         rebuild_and_solve(alphas, betas, Rms)
-        update_i_slider_max(sol_idx.size)
+        # update_i_slider_max(sol_idx.size)
         redraw()
 
     b_apply.on_clicked(on_apply)
 
     # redraw on geometry changes
-    s_i.on_changed(redraw)
+    # s_i.on_changed(redraw)
     s_x2.on_changed(redraw)
     s_y2.on_changed(redraw)
     s_z2.on_changed(redraw)

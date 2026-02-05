@@ -31,7 +31,6 @@ plotrAB = 1.4
 
 # file = "SHlayers_t6_delta0.1_multialpha_522_all.pkl"
 # file = "SHlayers_t6_delta0.1_BO_multialpha_246_all.pkl"
-file = "SHlayers_t6_delta0.1_BO_multialpha_486_all.pkl"
 
 # really good energy (-1.1744759166422694) with alpha=0.5, 1.0, 1.1
 
@@ -84,10 +83,20 @@ file = "SHlayers_t6_delta0.1_BO_multialpha_486_all.pkl"
 # nMu + 1:                         -1.174475841238099
 # no mu densifying, only phi w. 6: -1.174475779439825
 
-# todo: plot at rAB = 1 - does it dip negative? Why is beta=8 better than beta=13, when for the 1D problem beta=13 is the clear optimum? (non-rectangular function collection?)
+# todo: Why is beta=8 better than beta=13, when for the 1D problem beta=13 is the clear optimum? (non-rectangular function collection?)
 # todo: plot out f(rAB).
 #  Would this be different (8 vs 13) if using h-independent tmax check?
 #  How "product-like" does the wave function behave in the first place?
+
+# file = "SHlayers_t6_delta0.0_multialpha-new_rAB_clustering_775_all.pkl"
+# file = "SHlayers_t6_delta0.1_BO_multialpha_426_all.pkl"
+# file = "SHlayers_t5_delta0.0_multialpha-new_rAB_clustering_525_all.pkl"  # nrrAB=16
+
+# file = "SHlayers_t6_delta0.0_BO_nMu_test_24_426_all.pkl"
+file = "SHlayers_t6_delta0.0_BO_nMu_test_24_426_gamma1.0.pkl"  # with split_s_gamma = 1.0
+file = "SHlayers_t6_delta0.0_BO_nMu_test_16_426_all.pkl"
+# todo: in calc.py, how much cancellation happens while assembling the H_ij etc matrices?
+
 
 if "*" in file:
     for alpha in arange(1.00, 1.01, 0.1):
@@ -118,17 +127,14 @@ else:
     # plot_Psi_Eloc_by_alpha_beta(
     plot_Psi_Eloc_multi_params_from_files(
         file,
-        x1_min=-6.0,
-        x1_max= 6.0,
-        y1_min=-6.0,
-        y1_max= 6.0,
+        xy_max= 6.0,
         nx1=50,
-        ny1=50,
-        # meta = meta,
-        # SH_layers=layers,
         plot_rAB_target=plotrAB,
-        zlim_eloc=(-1.22, -1.1)
+        zlim_eloc=(-1.22, -1.1),
+        rcond=1e-17,
     )
+
+    # TODO: test higher rAB sampling. s goes over 20 values minimum; guess we might need more for rAB?
 
 # for bb in meta["basis_idx"]:
 #     print(bb)
@@ -136,5 +142,3 @@ else:
 # E, C, cond = solve_HS(layers, 0.75, 0.0, 1e-15)
 # print(E.min())
 # −1.174 475 931
-
-# TODO: Why is the ne cusp function asymmetric? (Which nucleus am I checking anyway?)

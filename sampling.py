@@ -12,44 +12,71 @@ def frange(start, stop, step):
         while x >= stop - 1e-12:
             yield x
             x += step
+import numpy as np
+from numpy.polynomial.legendre import leggauss
 
 def build_rAB_grid(
     KR: int,
     R_min: float,
     R_max: float,
+    Re: float,
     gamma: float = 2.0,
 ):
     """
-    Quadrature nodes/weights for integrating over R = rAB.
+    Composite Gauss–Legendre quadrature for ∫_{R_min}^{R_max} f(R) 4π R^2 dR
+    with clustering of nodes near Re from BOTH sides.
 
-    Returns R, wR such that:
-      measure="plain":  ∫_{R_min}^{R_max} f(R) dR  ≈ Σ wR[i] f(R[i])
-      measure="R2":     ∫_{R_min}^{R_max} f(R) 4πR^2 dR ≈ Σ wR[i] f(R[i])
+    Strategy:
+      - Split [R_min, R_max] at Re
+      - Left side:  R = Re - (Re-R_min) * (1-u)^gamma   (clusters near Re as u→1)
+      - Right side: R = Re + (R_max-Re) * (u^gamma)     (clusters near Re as u→0)
+      - u comes from Gauss–Legendre nodes mapped to [0,1]
+      - Correct Jacobians included
 
-    gamma>1 clusters points toward R_min (useful if small-R is stiff).
-    If you want clustering toward BOTH ends, see the note below.
+    gamma=1 gives plain composite GL on the two sub-intervals (no extra clustering).
     """
+    if KR < 2:
+        raise ValueError("KR must be >= 2")
     if gamma < 1.0:
         raise ValueError("gamma must be >= 1.0")
+    if not (R_min < Re < R_max):
+        raise ValueError("Re must lie strictly inside (R_min, R_max)")
     if R_max <= R_min:
         raise ValueError("R_max must be > R_min")
 
-    # Gauss-Legendre on [-1,1] -> u in [0,1]
-    x, w = leggauss(KR)
-    u = 0.5 * (x + 1.0)
-    wu = 0.5 * w
+    # Allocate points proportional to interval lengths (asymmetric OK)
+    frac_left = (Re - R_min) / (R_max - R_min)
+    KR_left = int(np.clip(np.round(KR * frac_left), 1, KR - 1))
+    KR_right = KR - KR_left
 
-    # Power map u -> t in [0,1] with clustering near 0
-    t = u ** gamma
-    dt_du = gamma * (u ** (gamma - 1.0))
+    # --- Left interval [R_min, Re], clustered toward Re ---
+    xL, wL = leggauss(KR_left)            # [-1,1]
+    uL = 0.5 * (xL + 1.0)                 # [0,1]
+    wuL = 0.5 * wL
 
-    # Map to R
-    R = R_min + (R_max - R_min) * t
-    dR_du = (R_max - R_min) * dt_du
+    aL = (Re - R_min)
+    # R = Re - aL*(1-u)^gamma
+    one_minus_u = (1.0 - uL)
+    RL = Re - aL * (one_minus_u ** gamma)
+    dRdu_L = aL * gamma * (one_minus_u ** (gamma - 1.0))
 
-    # Base weights for dR
-    wR = wu * dR_du
-    wR = wR * (4.0 * np.pi * R * R)
+    wRL = wuL * dRdu_L * (4.0 * np.pi * RL * RL)
+
+    # --- Right interval [Re, R_max], clustered toward Re ---
+    xR, wR = leggauss(KR_right)
+    uR = 0.5 * (xR + 1.0)
+    wuR = 0.5 * wR
+
+    aR = (R_max - Re)
+    # R = Re + aR*u^gamma
+    RR = Re + aR * (uR ** gamma)
+    dRdu_R = aR * gamma * (uR ** (gamma - 1.0))
+
+    wRR = wuR * dRdu_R * (4.0 * np.pi * RR * RR)
+
+    # Combine (already sorted within each side; left ends at Re, right starts at Re)
+    R = np.concatenate([RL, RR])
+    wR = np.concatenate([wRL, wRR])
 
     return R, wR
 
@@ -142,6 +169,36 @@ def shell_area_weight(s1, s2, rAB):
     shell_area_2 = 4*np.pi*((s2 / rAB)**2 - 1/3)
     return shell_area_1 * shell_area_2
 
+def phi2_chebyshev_quadrant(N):
+    """
+    Returns phi2 in [0, pi/2] and per-node weights wphi2 such that
+
+        sum_k wphi2[k] * f(phi2[k])
+        ≈ ∫_0^{2π} f(phi) dphi
+
+    assuming f(phi) = f(pi-phi) and f depends only on cos(phi).
+
+    Strongly clusters near phi=0 (small r12).
+    """
+
+    x, w = leggauss(N)
+    u = 0.5*(x + 1.0)
+    wu = 0.5*w
+
+    t = np.sqrt(1.0 - u*u)
+    phi = np.arccos(t)          # in [0, pi/2]
+
+    # Jacobian:
+    # dt/du = -u/sqrt(1-u^2)
+    # dphi/dt = -1/sqrt(1-t^2) = -1/u
+    # => dphi/du = 1/sqrt(1-u^2)
+
+    dphi_du = 1.0 / np.sqrt(1.0 - u*u)
+    wphi = 4.0 * wu * dphi_du # for the octant
+
+    return phi, wphi
+
+
 def sample_s_shell(rAB, s, nMu=12, Nphi=32, octant=False, s1 = 1.0, gamma_phi = 8.0):
     """
     Deterministic quadrature on the prolate spheroidal shell rA+rB = s.
@@ -149,23 +206,40 @@ def sample_s_shell(rAB, s, nMu=12, Nphi=32, octant=False, s1 = 1.0, gamma_phi = 
 
     R = full internuclear distance (same R used in mu=s/R)
     """
-    if octant: # todo: test further
+    # if octant: # todo: test further
         # ds = np.abs(s-s1)  # difference between s1, s2 (small ds -> check more small phi values for small r12)
         # gamma_phi = gamma_phi_from_ds(ds, gamma_max=gamma_phi_max)
-        return sample_s_shell_phi_bias_octant(rAB, s, nMu, Nphi, gamma_phi) # * int(np.sqrt(gamma_phi))
+        # return sample_s_shell_phi_bias_octant(rAB, s, nMu, Nphi, gamma_phi) # * int(np.sqrt(gamma_phi))
         # return sample_s_shell_phi_bias_octant(rAB, s, nMu, Nphi, 3.0) # todo: the 1.3 factor helped a lot too
+
+        # biased phi on [0, pi/2)
 
     mu = s / rAB
 
     nu0, w0 = leggauss(nMu)
-    a, b = (0, 1) if octant else (-1, 1)
+    a, b = (0.0, 1.0) if octant else (-1.0, 1.0)
     nu = 0.5*(b-a)*nu0 + 0.5*(a+b)
-    wnu = 0.5*(b-a)*w0 * (2 if octant else 1)  # (Immediately undo half-weighting, since octant will be mirrored back)
+    wnu = 0.5*(b-a)*w0 * (2.0 if octant else 1.0)  # (Immediately undo half-weighting, since octant will be mirrored back)
 
     # phi trapezoid grid on [0,2π)
-    pa, pb = (0, np.pi/2) if octant else (0, 2*np.pi)
-    phi = pa + (pb-pa)/Nphi * np.arange(Nphi)
-    wphi = (pb-pa)/Nphi * (4 if octant else 1)
+    if octant:
+        # phi, wphi = phi2_chebyshev_quadrant(Nphi)
+        # wphi = np.tile(wphi, nMu)
+        # # print(phi)
+
+        phi0, w0 = leggauss(Nphi)
+        a, b = (0.0, 0.5*np.pi)
+        phi = 0.5*(b-a)*phi0 + 0.5*(a+b)
+        wphi = 0.5*(b-a)*w0 * 4.0
+        wphi = np.tile(wphi, nMu)
+
+        # phi = 0.5 * np.pi / Nphi * np.arange(Nphi) + 0.25 * np.pi / Nphi
+        # wphi = (0.5 * np.pi) / Nphi * 4.0  # 4: octant mirroring factor
+        # print(phi)
+    else:
+        pa, pb = (0, np.pi/2) if octant else (0, 2*np.pi)
+        phi = pa + (pb-pa)/Nphi * np.arange(Nphi)
+        wphi = (pb-pa)/Nphi * (4 if octant else 1)
 
     # tensor product grid
     nu_grid = np.repeat(nu, Nphi)
@@ -275,7 +349,7 @@ def sample_s_shell_phi_bias_octant(rAB, s, nMu=12, Nphi=16, gamma_phi=3.0):
     # biased phi on [0, pi/2)
     u = (np.arange(Nphi) + 0.5) / Nphi          # midpoint rule in u
     phi = (0.5*np.pi) * (u ** gamma_phi)
-    wphi = (0.5*np.pi) * gamma_phi * (u ** (gamma_phi - 1.0)) * (1.0 / Nphi)
+    wphi = (0.5*np.pi) * gamma_phi * (u ** (gamma_phi - 1.0)) / Nphi
     wphi = wphi * 4.0  # octant mirroring factor
 
     nu_grid = np.repeat(nu, Nphi)
@@ -290,192 +364,3 @@ def sample_s_shell_phi_bias_octant(rAB, s, nMu=12, Nphi=16, gamma_phi=3.0):
     z = rho * np.sin(phi_grid)
 
     return x,y,z,nu_grid,phi_grid,w
-
-
-
-from math import factorial
-
-def _mu_int(n: int, p: float) -> float:
-    # ∫_1^∞ μ^n e^{-pμ} dμ = e^{-p} Σ_{j=0..n} n!/(n-j)! * 1/p^{j+1}
-    nfac = factorial(n)
-    s = 0.0
-    for j in range(n + 1):
-        s += nfac / factorial(n - j) / (p ** (j + 1))
-    return np.exp(-p) * s
-
-def I3_exp(rAB: float, k: float) -> float:
-    a = 0.5 * rAB
-    p = k * rAB
-    I2 = _mu_int(2, p)
-    I0 = _mu_int(0, p)
-    return 2*np.pi * a**3 * (2*I2 - (2/3)*I0)
-
-def I3_s_exp(rAB: float, k: float) -> float:
-    # ∫ s e^{-k s} dV = - d/dk I3
-    # Since p=k rAB, d/dk = rAB d/dp
-    a = 0.5 * rAB
-    p = k * rAB
-
-    # d/dp ∫ μ^n e^{-pμ} dμ = - ∫ μ^{n+1} e^{-pμ} dμ
-    dI2_dp = -_mu_int(3, p)
-    dI0_dp = -_mu_int(1, p)
-
-    dI3_dp = 2*np.pi * a**3 * (2*dI2_dp - (2/3)*dI0_dp)
-    return -(rAB * dI3_dp)
-
-def integrate_6d_via_split(rAB, s_max, Ks=48, Ku=32, Nnu=32, Nphi=64, f=None, gamma=2.0):
-    """
-    Numerically approximates ∫ f(...) d^3r1 d^3r2 over the domain s1>=R, s2>=R
-    using your:
-      build_s_shells(rAB, Ks, s_max, gamma)
-      split_s(s, rAB, Ku)
-      sample_s_shell(rAB, s1), sample_s_shell(rAB, s2)
-    """
-    # s_grid, ws = build_s_shells(rAB, Ks, s_max, gamma=gamma)  # :contentReference[oaicite:5]{index=5}
-    s_grid, ws = build_s_shells(rAB, Ks)  # :contentReference[oaicite:5]{index=5}
-    a = 0.5 * rAB
-    pref = (a**3 / rAB)**2   # (a^3 dμ)^2 with dμ=ds/rAB  => overall rAB factors handled here
-
-    total = 0.0
-    for s, w_s in zip(s_grid, ws):
-        s1, s2, w_split = split_s(s, rAB, Ku)  # :contentReference[oaicite:6]{index=6}
-        for si, sj, w_ij in zip(s1, s2, w_split):
-            x1,y1,z1,nu1,phi1,wsh1 = sample_s_shell(rAB, si, nMu=Nnu, Nphi=2, octant=False)  # :contentReference[oaicite:7]{index=7}
-            x2,y2,z2,nu2,phi2,wsh2 = sample_s_shell(rAB, sj, nMu=Nnu, Nphi=32, octant=True, s1=s1)  # :contentReference[oaicite:8]{index=8}
-
-            # evaluate on tensor product of shell grids
-            if f is None:
-                vals = 1.0
-                block = np.sum(wsh1) * np.sum(wsh2)
-            else:
-                # build r12 if needed
-                dx = x1[:,None]-x2[None,:]
-                dy = y1[:,None]-y2[None,:]
-                dz = z1[:,None]-z2[None,:]
-                r12 = np.sqrt(dx*dx+dy*dy+dz*dz)
-
-                vals = f(si, sj, s, x1,y1,z1, x2,y2,z2, r12)
-                block = np.sum((wsh1[:,None]*wsh2[None,:]) * vals)
-
-            total += w_s * w_ij * block
-
-    return pref * total
-
-def integrate_6d_gaussian_r12(rAB, alpha, beta, Kmu=22, Nnu=12, Nphi=24, p_map=1.2):
-    """
-    Generic μ quadrature: μ = 1 + t/p_map, t∈[0,∞).
-    Uses Laguerre weights w (for ∫ e^{-t} g(t) dt), so to integrate ∫ f(t) dt we use g(t)=e^{t} f(t).
-    """
-    t, w = np.polynomial.laguerre.laggauss(Kmu)
-    mu = 1.0 + t / p_map
-    dmu = 1.0 / p_map
-
-    a = 0.5 * rAB
-    pref = (a**3 * dmu)**2
-
-    total = 0.0
-    for i, mui in enumerate(mu):
-        s1 = mui * rAB
-        x1,y1,z1,nu1,phi1,w1 = sample_s_shell(rAB, s1, nMu=12, Nphi=2, octant=False)
-        r1_2 = x1*x1 + y1*y1 + z1*z1
-
-        for j, muj in enumerate(mu):
-            s2 = muj * rAB
-            x2,y2,z2,nu2,phi2,w2 = sample_s_shell(rAB, s2, nMu=12, Nphi=12, octant=True, s1=s1)
-            r2_2 = x2*x2 + y2*y2 + z2*z2
-
-            dx = x1[:,None]-x2[None,:]
-            dy = y1[:,None]-y2[None,:]
-            dz = z1[:,None]-z2[None,:]
-            r12_2 = dx*dx+dy*dy+dz*dz
-
-            integrand = np.exp(-alpha*(r1_2[:,None] + r2_2[None,:]) - beta*r12_2)
-            block = np.sum((w1[:,None]*w2[None,:]) * integrand)
-
-            # convert Laguerre to plain dt integral: multiply by exp(t_i+t_j)
-            total += (w[i]*np.exp(t[i])) * (w[j]*np.exp(t[j])) * block
-
-    return pref * total
-
-def exact_6d_gaussian(alpha, beta):
-    return (np.pi**3) / ((alpha*(alpha+2.0*beta))**1.5)
-
-def test_r12_gaussian(rAB=1.4, alpha=0.7, beta=0.4):
-    num = integrate_6d_gaussian_r12(rAB, alpha, beta)
-    ex  = exact_6d_gaussian(alpha, beta)
-    print("6D Gaussian(r12) num:", num)
-    print("6D Gaussian(r12) exact:", ex)
-    print("relerr:", abs(num-ex)/abs(ex))
-def exact_6d_gaussian_r12sq(alpha, beta):
-    I = exact_6d_gaussian(alpha, beta)
-    return (3.0/(alpha+2.0*beta)) * I
-
-def test_r12_moment(rAB=1.4, alpha=0.7, beta=0.4):
-    def integrate_r12sq():
-
-        # s_shells, sW = build_s_shells(rAB, Ks=30, s_max=50, gamma=3.0)
-        # for ks, s in enumerate(s_shells):
-        #     s1_vals, s2_vals, splitW = split_s(s, rAB, Ku=13)
-        #
-        #     for j, (s1, s2) in enumerate(zip(s1_vals, s2_vals)):
-        #         x1, y1, _, mu1, _, w1 = sample_s_shell(rAB, s1, Nphi=2, nMu=12)  # x-y plane only
-        #         x2, y2, z2, mu2, _, w2 = sample_s_shell(rAB, s2, octant=True, nMu=12, Nphi=12, s1=s1)
-        #
-        #         r1_2 = x1*x1 + y1*y1
-        #         r2_2 = x2*x2 + y2*y2 + z2*z2
-        #
-        #         dx = x1[:,None]-x2[None,:]
-        #         dy = y1[:,None]-y2[None,:]
-        #         dz = -z2[None,:]
-        #         r12_2 = dx*dx+dy*dy+dz*dz
-        #
-        #         base = np.exp(-alpha*(r1_2[:,None]+r2_2[None,:]) - beta*r12_2)
-        #         block = np.sum((w1[:,None]*w2[None,:]) * (r12_2 * base))
-
-        t, w = np.polynomial.laguerre.laggauss(22)
-        p_map=1.2
-        mu = 1.0 + t / p_map
-        dmu = 1.0 / p_map
-        a = 0.5*rAB
-        pref = (a**3*dmu)**2
-
-        total = 0.0
-        for i, mui in enumerate(mu):
-            s1 = mui*rAB
-            x1,y1,z1,nu1,phi1,w1 = sample_s_shell(rAB, s1, nMu=12, Nphi=2, octant=False)
-            r1_2 = x1*x1 + y1*y1 + z1*z1
-            for j, muj in enumerate(mu):
-                s2 = muj*rAB
-                x2,y2,z2,nu2,phi2,w2 = sample_s_shell(rAB, s2, nMu=12, Nphi=24, octant=True, s1=s1)
-                r2_2 = x2*x2 + y2*y2 + z2*z2
-
-                dx = x1[:,None]-x2[None,:]
-                dy = y1[:,None]-y2[None,:]
-                dz = z1[:,None]-z2[None,:]
-                r12_2 = dx*dx+dy*dy+dz*dz
-
-                base = np.exp(-alpha*(r1_2[:,None]+r2_2[None,:]) - beta*r12_2)
-                block = np.sum((w1[:,None]*w2[None,:]) * (r12_2 * base))
-
-                total += (w[i]*np.exp(t[i]))*(w[j]*np.exp(t[j])) * block
-
-        return pref * total
-
-    num = integrate_r12sq()
-    ex  = exact_6d_gaussian_r12sq(alpha, beta)
-    print("6D r12^2 moment num:", num)
-    print("6D r12^2 moment exact:", ex)
-    print("relerr:", abs(num-ex)/abs(ex))
-
-
-
-
-
-
-# print("--")
-# test_r12_gaussian()
-# test_r12_moment()
-# plot_r12_measure_diagnostics()
-# plot_r12_weight_cdf(rAB=1.4, nS=40, sMax=50, gamma=3.0, Ku=10, nMu=24)
-# test_split_swap_zero()
-# test_split_s1_moment()

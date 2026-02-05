@@ -136,58 +136,152 @@ class StitchedBasis:
         for k, blk in enumerate(self.blocks):
             sl = slice(k*self.N, (k+1)*self.N)
             yield k, blk, sl
-
+import numpy as np
 
 def assemble_HS_multi_alpha(SH_layers, alphas, betas, Rms, coords, H=None, S=None):
-
+    # N: basis size per block
     N = next(iter(SH_layers["S"].values())).shape[0]
-    n = len(alphas)*len(betas)
+
+    alphas = np.asarray(alphas, dtype=np.float64)
+    betas  = np.asarray(betas,  dtype=np.float64)
+    Rms    = np.asarray(Rms,    dtype=np.float64)
+
+    na, nb = len(alphas), len(betas)
+    n = na * nb
+    M = n * N
+
+    A  = np.repeat(alphas, nb)     # (n,)
+    B  = np.tile(betas, na)        # (n,)
+    RM = np.tile(Rms,   na)        # (n,)
+
+    if S is None:
+        S = np.zeros((M, M), dtype=np.float64)
     if H is None:
-        S = np.zeros((n*N, n*N), dtype=np.float64)
-        H = np.zeros((n*N, n*N), dtype=np.float64)
+        H = np.zeros((M, M), dtype=np.float64)
 
-    blocks_list = []
-    for alpha in alphas:
-        for b, beta in enumerate(betas):
-            blocks_list.append({"alpha": alpha, "beta": beta, "Rm": Rms[b]})
-    blocks = tuple(blocks_list)
-    print(f"({n*N} functions)")
+    # 4D block views: (i, j, r, c)
+    S4 = S.reshape(n, N, n, N).transpose(0, 2, 1, 3)
+    H4 = H.reshape(n, N, n, N).transpose(0, 2, 1, 3)
 
-    for (rAB0, s0), Sl in SH_layers["S"].items():
-        for i, b1 in enumerate(blocks):
-            r = slice(i * N, (i + 1) * N)
-            for j, b2 in enumerate(blocks):
-                c = slice(j * N, (j + 1) * N)
-                S_tile, H_tile = _assemble_HS_alphas_piece(SH_layers, b1["alpha"], b2["alpha"], b1["beta"], b2["beta"], b1["Rm"], b2["Rm"], coords, s0, rAB0)
-                S[r, c] += S_tile
-                H[r, c] += H_tile
+    items = SH_layers["S"].items()
+    c_beta2 = float(SH_layers["c_beta2"])
+    meta = SH_layers.get("meta", {})
+
+    morse_exp = coords.endswith("_morse")
+    morse_rm  = (coords == "s12mu_morse")  # only this one uses rm = (rAB0 - Rm)
+
+    for (rAB0, s0), S_layer in items:
+        # Grab layer matrices once
+        H1   = SH_layers["H_1"][rAB0, s0]
+        Ha   = SH_layers["H_alpha"][rAB0, s0]
+        Ha2  = SH_layers["H_alpha2"][rAB0, s0]
+        Hb   = SH_layers["H_beta"][rAB0, s0]
+        Hab  = SH_layers["H_alphabeta"][rAB0, s0]
+
+        # ---- build Hj[j] = Hl(alpha2,beta2,Rm2) for all j (depends only on block-2) ----
+        if morse_rm:
+            rm = (rAB0 - RM)  # (n,)
+        else:
+            rm = 1.0
+
+        Hj = np.empty((n, N, N), dtype=np.float64)
+        # Build each Hj[j] with in-place axpy-style updates
+        for j in range(n):
+            aj = A[j]
+            bj = B[j]
+            rmj = rm[j] if morse_rm else 1.0
+
+            out = H1.copy()
+            out += Ha  * aj
+            out += Ha2 * (aj * aj)
+            out += Hb  * (rmj * bj)
+            out += Hab * (rmj * aj * bj)
+
+            cf = c_beta2 * (rmj * rmj) * (bj * bj)
+            if morse_rm:
+                cf += 2.0 * float(meta["M_inv"]) * bj
+
+            out += S_layer * cf
+            Hj[j] = out
+
+        # ---- build exps[i,j] for this layer ----
+        # alpha part (outer sum)
+        exp_a = np.exp(-s0 * (A[:, None] + A[None, :]))  # (n,n)
+
+        if morse_exp:
+            # beta part is separable: exp(-B_i*(RM_i-rAB)^2) * exp(-B_j*(RM_j-rAB)^2)
+            d2 = (RM - rAB0) ** 2
+            eb = np.exp(-B * d2)  # (n,)
+            exp_b = eb[:, None] * eb[None, :]  # (n,n)
+            exps = exp_a * exp_b
+        else:
+            # exp(-(beta1+beta2)*rAB0)
+            exp_b = np.exp(-rAB0 * (B[:, None] + B[None, :]))
+            exps = exp_a * exp_b
+
+        # ---- accumulate blocks without (i,j) Python loop ----
+        # Update by columns j to avoid huge temporary (n,n,N,N)
+        # S4[:, j] += exps[:, j][:,None,None] * S_layer
+        # H4[:, j] += exps[:, j][:,None,None] * Hj[j]
+        for j in range(n):
+            fj = exps[:, j].reshape(n, 1, 1)          # (n,1,1)
+            S4[:, j] += fj * S_layer                  # broadcast over (N,N)
+            H4[:, j] += fj * Hj[j]                    # broadcast over (N,N)
+
+    blocks = tuple({"alpha": float(A[k]), "beta": float(B[k]), "Rm": float(RM[k])} for k in range(n))
     return H, S, StitchedBasis(N=N, blocks=blocks)
 
-def _assemble_HS_alphas_piece(SH_layers, alpha1, alpha2, beta1, beta2, Rm1, Rm2, coords, s0, rAB0):
-    S_tile = np.zeros_like(next(iter(SH_layers["S"].values())), dtype=np.float64)
-    H_tile = np.zeros_like(S_tile, dtype=np.float64)
-
-    if coords.endswith("_morse"):
-        exps = np.exp(-(alpha1+alpha2) * s0 - beta1 * (Rm1 - rAB0) ** 2 - beta2 * (Rm2 - rAB0) ** 2)
-    else:
-        exps = np.exp(-(alpha1+alpha2) * s0 - (beta1+beta2) * rAB0)
-
-    S_tile = SH_layers["S"][rAB0, s0] * exps
-    Hl = np.zeros_like(H_tile)
-    Hl += SH_layers["H_1"][rAB0, s0]
-    Hl += SH_layers["H_alpha"][rAB0, s0] * alpha2
-    Hl += SH_layers["H_alpha2"][rAB0, s0] * alpha2 ** 2
-    rm = (rAB0 - Rm2) if coords == "s12mu_morse" else 1.
-    Hl += SH_layers["H_beta"][rAB0, s0] * rm * beta2
-    Hl += SH_layers["H_alphabeta"][rAB0, s0] * rm * alpha2 * beta2
-
-    cf = SH_layers["c_beta2"] * rm**2 * beta2**2  # constant factor from _beta and _beta2 that can be directly applied to S
-    if coords == "s12mu_morse":
-        cf += 2. * SH_layers["meta"]["M_inv"] * beta2  # was left out there since it doesn't multiply rm
-    Hl += SH_layers["S"][rAB0, s0] * cf
-
-    H_tile += Hl * exps
-    return S_tile, H_tile
+#
+# def assemble_HS_multi_alpha(SH_layers, alphas, betas, Rms, coords, H=None, S=None):
+#
+#     N = next(iter(SH_layers["S"].values())).shape[0]
+#     n = len(alphas)*len(betas)
+#     if H is None:
+#         S = np.zeros((n*N, n*N), dtype=np.float64)
+#         H = np.zeros((n*N, n*N), dtype=np.float64)
+#
+#     blocks_list = []
+#     for alpha in alphas:
+#         for b, beta in enumerate(betas):
+#             blocks_list.append({"alpha": alpha, "beta": beta, "Rm": Rms[b]})
+#     blocks = tuple(blocks_list)
+#     print(f"({n*N} functions)")
+#
+#     for (rAB0, s0), Sl in SH_layers["S"].items():
+#         for i, b1 in enumerate(blocks):
+#             r = slice(i * N, (i + 1) * N)
+#             for j, b2 in enumerate(blocks):
+#                 c = slice(j * N, (j + 1) * N)
+#                 S_tile, H_tile = _assemble_HS_alphas_piece(SH_layers, b1["alpha"], b2["alpha"], b1["beta"], b2["beta"], b1["Rm"], b2["Rm"], coords, s0, rAB0)
+#                 S[r, c] += S_tile
+#                 H[r, c] += H_tile
+#     return H, S, StitchedBasis(N=N, blocks=blocks)
+#
+# def _assemble_HS_alphas_piece(SH_layers, alpha1, alpha2, beta1, beta2, Rm1, Rm2, coords, s0, rAB0):
+#     S_tile = np.zeros_like(next(iter(SH_layers["S"].values())), dtype=np.float64)
+#     H_tile = np.zeros_like(S_tile, dtype=np.float64)
+#
+#     if coords.endswith("_morse"):
+#         exps = np.exp(-(alpha1+alpha2) * s0 - beta1 * (Rm1 - rAB0) ** 2 - beta2 * (Rm2 - rAB0) ** 2)
+#     else:
+#         exps = np.exp(-(alpha1+alpha2) * s0 - (beta1+beta2) * rAB0)
+#
+#     S_tile = SH_layers["S"][rAB0, s0] * exps
+#     Hl = np.zeros_like(H_tile)
+#     Hl += SH_layers["H_1"][rAB0, s0]
+#     Hl += SH_layers["H_alpha"][rAB0, s0] * alpha2
+#     Hl += SH_layers["H_alpha2"][rAB0, s0] * alpha2 ** 2
+#     rm = (rAB0 - Rm2) if coords == "s12mu_morse" else 1.
+#     Hl += SH_layers["H_beta"][rAB0, s0] * rm * beta2
+#     Hl += SH_layers["H_alphabeta"][rAB0, s0] * rm * alpha2 * beta2
+#
+#     cf = SH_layers["c_beta2"] * rm**2 * beta2**2  # constant factor from _beta and _beta2 that can be directly applied to S
+#     if coords == "s12mu_morse":
+#         cf += 2. * SH_layers["meta"]["M_inv"] * beta2  # was left out there since it doesn't multiply rm
+#     Hl += SH_layers["S"][rAB0, s0] * cf
+#
+#     H_tile += Hl * exps
+#     return S_tile, H_tile
 
 def save_layers(label, rAB):
     global layers
