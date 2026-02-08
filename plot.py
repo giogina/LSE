@@ -188,17 +188,12 @@ def plot_Psi_Eloc_multi_params_from_files(
     z2_init=0.4,
 
     # initial parameter text
-    alpha_text_init="0.2, 0.5, 0.8, 1.1",  # 0.2,
+    # alpha_text_init="0.2, 0.5, 0.8, 1.1",  # 0.2,
     # beta_rm_text_init="7.6 1.2; 7.8 1.3; 8.0 1.4",
-    # alpha_text_init="0.8",
+    alpha_text_init="1.0",
     beta_rm_text_init="8.0 1.4",
 ):
     """
-    Like plot_Psi_Eloc_by_alpha_beta, but:
-      - NO alpha/beta sliders.
-      - You enter sets of alphas and (beta,Rm) pairs in text boxes.
-      - Click Apply -> rebuild H,S via assemble_HS_multi_alpha, solve, and keep plotting.
-
     Text formats:
       alphas:
         - list: "0.6,0.8,1.0"
@@ -448,7 +443,7 @@ def plot_Psi_Eloc_multi_params_from_files(
             del layers_new
             gc.collect()
 
-        E, C, cond = solve_HS(H, S, rcond)
+        E, C, cond = solve_HS(H, S, rcond, meta["basis_idx"])
         idx = np.argsort(np.real(E))
         E = np.real(E[idx])
         C = np.real(C[:, idx])

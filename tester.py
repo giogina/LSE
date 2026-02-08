@@ -4,7 +4,7 @@ from glob import glob
 import numpy as np
 from numpy.ma.core import arange
 
-from plot import plot_Psi_Eloc_by_alpha_beta, plot_nonBO_from_files, plot_Psi_Eloc_multi_params_from_files
+from plot import plot_nonBO_from_files, plot_Psi_Eloc_multi_params_from_files
 
 # file = "SHlayers_t8_n-i_m-j_delta0_BO.pkl" # pretty good!
 # file = "SHlayers_t8_nm-khalf_delta0_BO_363.pkl"
@@ -83,6 +83,8 @@ plotrAB = 1.4
 # nMu + 1:                         -1.174475841238099
 # no mu densifying, only phi w. 6: -1.174475779439825
 
+# h+i+j is a bit better at alpha=1.0, beta=8.0
+
 # todo: Why is beta=8 better than beta=13, when for the 1D problem beta=13 is the clear optimum? (non-rectangular function collection?)
 # todo: plot out f(rAB).
 #  Would this be different (8 vs 13) if using h-independent tmax check?
@@ -93,10 +95,47 @@ plotrAB = 1.4
 # file = "SHlayers_t5_delta0.0_multialpha-new_rAB_clustering_525_all.pkl"  # nrrAB=16
 
 # file = "SHlayers_t6_delta0.0_BO_nMu_test_24_426_all.pkl"
-file = "SHlayers_t6_delta0.0_BO_nMu_test_24_426_gamma1.0.pkl"  # with split_s_gamma = 1.0
-file = "SHlayers_t6_delta0.0_BO_nMu_test_16_426_all.pkl"
+# file = "SHlayers_t6_delta0.0_BO_nMu_test_24_426_gamma1.0.pkl"  # with split_s_gamma = 1.0
+file = "SHlayers_t8_delta0.0_BO_nMu_test_16_875_all.pkl" # new leggauss-phi sampling (16-32-24)
+# file = "SHlayers_t8_delta0.0_BO_nMu_16_arange_phi_875_all.pkl" # new leggauss-phi sampling (16-32-24)
+# file = "SHlayers_t6_delta0.0_BO_kL_306_all.pkl"
+# file = "SHlayers_t6_delta0.0_BO_k6n4_609_all.pkl" # Increasing the k dependence too much gives very strange results?!
 # todo: in calc.py, how much cancellation happens while assembling the H_ij etc matrices?
 
+file = "SHlayers_t3_delta0.0_BO_asym-test_60_all.pkl"
+#ref: -1.1736534008915154
+#     -1.173653400891507
+#     -1.1736534008915154
+    # -1.1736534008915154
+    # -1.1736534008915154
+# file = "SHlayers_t3_delta0.0_BO_asym-test_10_all.pkl"
+
+# [ 0  0  0  1  1] -> [ 2  0  1  2  0]
+# [ 2  0  0  1  1] -> [ 5  0  0  1  1]
+# [ 0  0  0  0  0] -> [ 1  0  0  0  0]
+# [ 1  0  0  0  0] -> [ 5  0  0  0  0] 1.7e-5
+# [ 0  0  0  0  0] -> [ 5  0  0  0  0] 1.5e-5
+# [ 0  0  0  0  0] -> [ 0  2  1  0  0] 0 -> 9
+
+# Fij = np.stack([0, 0, k * k + k, k, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, ..., 1], axis=0)
+# [n * n - n, n, 0, 0, 0, m, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, n * m, 0, 0, 0, 0, 0, 0, 1]
+
+    # dd_add(dd_add(dd_mul(dd_minus(c13), inv_s1_2), dd_mul(dd_minus(inv_s1_s2), c4)), dd_add(dd_minus(inv_rA1_rB1), dd_minus(inv_rA2_rB2)))
+
+# dd_add(dd_add(dd_mul(v12, M1M), dd_mul_exact_scalar(dd_mul(dd_add(dd_mul_exact_scalar(c13, 2.), c4), inv_s1), 2.)), dd_mul(dd_add(dd_mul_exact_scalar(c14, 2.), c4), inv_s2))
+
+
+
+# Low asym:
+# phi -> same except different i, j:
+# high asym: -1 -> 0 in nm; 0->high k
+# # testing without -1: Highest k or delta-k, change in nmk by 1 are worst.
+# almost perfect: m or k = 0
+# alpha =0.8 -> 1.0 changes things a lot - large k no longer so asymmetric??
+
+# k_max=0:
+#   Odd delta-i,j: perfect (also even delta-i,j with n, m = 0)
+#   Even delta-i,j: worse (even 0-0).
 
 if "*" in file:
     for alpha in arange(1.00, 1.01, 0.1):
@@ -114,7 +153,7 @@ if "*" in file:
                 x1_min=-6, x1_max=6,
                 y1_min=-6, y1_max=6,
                 zlim_eloc=(-1.22, -1.1),
-                rcond = 1e-16,
+                rcond = 1e-14,
                 savepic=f"~/Pictures/{file.replace('SHlayers_', '').replace('*.pkl', '')}_alpha{alpha:.2f}_beta{beta:.2f}_rAB{rAB}_multi-test_Eeee.png"
             )
 

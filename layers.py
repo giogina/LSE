@@ -13,6 +13,85 @@ bsize = None
 tMax = None
 BO = False
 
+def print_H_asymmetry_ranked(
+    H: np.ndarray,
+    # S: np.ndarray,
+    basis_idx: np.ndarray,
+    *,
+    top: int | None = None,
+    min_abs: float = 0.0,
+    normalize: bool = True,
+    eps: float = 1e-300,
+    file=None,
+):
+    """
+    Print (i,j) pairs ranked by asymmetry between H[i,j] and H[j,i].
+
+    Ranking score:
+      - if normalize=True: |Hij - Hji| / (|Hij| + |Hji| + eps)
+      - else:              |Hij - Hji|
+
+    Prints: score, |diff|, Hij, Hji, i, j, basis_idx[i,:], basis_idx[j,:]
+
+    Notes:
+      - Only considers i<j (unique pairs).
+      - If top is None, prints the full list (can be huge).
+    """
+    H = np.asarray(H)
+    basis_idx = np.asarray(basis_idx)
+
+    if H.ndim != 2 or H.shape[0] != H.shape[1]:
+        raise ValueError(f"H must be square, got shape {H.shape}")
+    n = H.shape[0]
+    if basis_idx.shape[0] != n:
+        raise ValueError(f"basis_idx must have {n} rows, got {basis_idx.shape[0]}")
+
+    # Upper-triangle indices (unique unordered pairs)
+    iu, ju = np.triu_indices(n, k=1)
+
+    Hij = H[iu, ju]
+    Hji = H[ju, iu]
+    diff = Hij - Hji
+    adiff = np.abs(diff)
+
+    if normalize:
+        denom = (np.abs(Hij) + np.abs(Hji) + eps)
+        # score = adiff / denom
+        score = np.abs(Hij)
+    else:
+        score = adiff
+
+    # Filter
+    mask = adiff >= float(min_abs)
+    iu, ju = iu[mask], ju[mask]
+    Hij, Hji, diff, adiff, score = Hij[mask], Hji[mask], diff[mask], adiff[mask], score[mask]
+
+    # Sort strongest first
+    order = np.argsort(score)[::-1]
+    if top is not None:
+        order = order[:int(top)]
+
+    # Header
+    print(
+        "rank  score              |Hij-Hji|          Hij                Hji                i      j      basis_i -> basis_j",
+        file=file,
+    )
+
+    for r, p in enumerate(order, start=1):
+        i = int(iu[p]); j = int(ju[p])
+        bi = basis_idx[i]
+        bj = basis_idx[j]
+        bi_str = "[" + ' '.join(f"{v:{2}d}" for v in bi[1:]) + "]"
+        bj_str = "[" + ' '.join(f"{v:{2}d}" for v in bj[1:]) + "]"
+        bdiff = "[" + ' '.join(f"{bj[n]-bi[n]:{2}d}" for n in [1, 2, 3, 4, 5]) + "]"
+        print(
+            f"{r:4d}  {score[p]: .9e}  {diff[p]: .9e}   {Hij[p]: .9e}   {Hji[p]: .9e}   {i:5d}  {j:5d}  {bi_str} -> {bj_str}  {bdiff} {bi[1]*bj[1]}",
+            file=file,
+        )
+
+    print(f"\nTotal pairs printed: {len(order)} (out of {len(score)} passing min_abs={min_abs})", file=file)
+
+
 def init_layers(coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X, tmax, bo):
     global layers, tMax, BO
     tMax = tmax
@@ -229,6 +308,9 @@ def assemble_HS_multi_alpha(SH_layers, alphas, betas, Rms, coords, H=None, S=Non
             H4[:, j] += fj * Hj[j]                    # broadcast over (N,N)
 
     blocks = tuple({"alpha": float(A[k]), "beta": float(B[k]), "Rm": float(RM[k])} for k in range(n))
+
+    # print_H_asymmetry_ranked(H, SH_layers["meta"]["basis_idx"])
+
     return H, S, StitchedBasis(N=N, blocks=blocks)
 
 #

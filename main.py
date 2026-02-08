@@ -9,22 +9,29 @@ BO = True
 M = 1836.1526738  #Previously used: 1836.153
 
 # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
-h_max = 2 # Even 2 should be pretty accurate
-k_max = 6
-nm_min = -1  # improves cusps; little effect on energy
+h_max = 2
+k_max = 5
+nm_min = 0  # improves cusps; little effect on energy
 nm_max = 2
 ij_max = 8
-total_max = 8 # todo: Why beta=8 instead of 13, anyway?
+total_max = 3 # todo: Why beta=8 instead of 13, anyway?
 # deltas = [0.0, 0.3]
 delta = 0.0  # TODO: Try delta-sequence instead of r12-poly.
 
 # todo: split-s still inaccurate (integral-wise) for gamma > 1; but ugly results in Eloc for gamma = 1. How to solve that?
 
+# todo: kurokawa g2 function gives so much better cusps... wtf is it?
+#    Or maybe, setting high nrPhi prioritizes the cusps (according to the plots, it does); and the total energy / outside wave function suffers as a result?
+
+# todo: maybe it's just a single point that's off in the cusp function?
+
+# Could still just be an insufficient basis set...
+
 for nMu in [16]:
     # nMu = 12
     nrPhi = 32
-    nrS = 24  # 30-60 are optimal according to numerical tests (any more, and accumulation of numerical errors starts taking over)
-    nrS12 = 15  # Odd -> s1=s2 allowed
+    nrS = 20  # 30-60 are optimal according to numerical tests (any more, and accumulation of numerical errors starts taking over)
+    nrS12 = 11  # Odd -> s1=s2 allowed
     nrrAB = 24
     sMax = 20
 
@@ -33,16 +40,10 @@ for nMu in [16]:
     abRange, wAB = build_rAB_grid(KR = nrrAB, R_min=0.4, R_max=3.0, Re=1.4, gamma = 2.0)
     print(abRange)
 
-    label = f"nMu_test_{nMu}"
-    # h+i+j is a bit better at alpha=1.0, beta=8.0
-    # label = "delta-test"
+    label = f"asym-test"
     # label = f"basis-test-{h_max}-{k_max}-{nm_min}..{nm_max}-{ij_max}-{total_max}_sampling-{nMu}-{nrPhi}-{nrS}-{nrS12}-{sMax}"
 
     coords = "s12mu_morse"  # Best performance & accuracy
-    # coords = "rij"
-    # coords = "stmu"
-    # coords = "s12mu"
-    # coords = "s12uv_morse"
 
     separateFiles = False
 
@@ -63,6 +64,7 @@ for nMu in [16]:
     nrP = 0
 
     if not separateFiles: init_layers(coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X, total_max, BO)
+    # acc = dd_from(np.zeros((bSize, bSize), dtype = np.float64))
 
     for kab, rAB in enumerate(abRange):
         if rAB < startFromrAB or rAB > upTorAB: continue
@@ -71,6 +73,7 @@ for nMu in [16]:
         for ks, s in enumerate(s_shells):
             s1_vals, s2_vals, splitW = split_s(s, rAB, Ku=nrS12, gamma = 4.0)  # high gamma: a lot more s1 ~ s2
             init_rAB_layers(bSize)
+            acc_inner = np.zeros((bSize, bSize), dtype = np.float128)
 
             for j, (s1, s2) in enumerate(zip(s1_vals, s2_vals)):
                 x1, y1,  _, mu1, _, w1 = sample_s_shell(rAB, s1, Nphi=2, nMu=nMu)  # sample electron 1 on its s1-shell (x-y plane only)
@@ -78,9 +81,13 @@ for nMu in [16]:
                 B, A_1, A_alpha, A_beta, A_alpha2, A_alphabeta, c_beta2, P = calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, wAB[kab] * sW[ks] * splitW[j], coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X)
                 accumulate_rAB_layers(B, A_1, A_alpha, A_beta, A_alpha2, A_alphabeta, c_beta2)
                 nrP += P
+                # acc_inner = dd_add(acc_inner, dd_matmul(dd_from(B.T[9]), A_test[0]))
+                # acc_inner = dd_add(acc_inner, dd_matmul(dd_from(B.T[9]), A_test[1]))
 
             print(ks, rAB, s, nrP, time.time() - start)
             accumulate_layers(rAB, s)
+            # acc += acc_inner * np.exp(-s)
+            # print(acc)
 
         if separateFiles: save_layers(label, rAB)
     if not separateFiles: save_layers(label, "all")
