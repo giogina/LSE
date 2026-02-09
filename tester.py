@@ -100,9 +100,24 @@ file = "SHlayers_t8_delta0.0_BO_nMu_test_16_875_all.pkl" # new leggauss-phi samp
 # file = "SHlayers_t8_delta0.0_BO_nMu_16_arange_phi_875_all.pkl" # new leggauss-phi sampling (16-32-24)
 # file = "SHlayers_t6_delta0.0_BO_kL_306_all.pkl"
 # file = "SHlayers_t6_delta0.0_BO_k6n4_609_all.pkl" # Increasing the k dependence too much gives very strange results?!
-# todo: in calc.py, how much cancellation happens while assembling the H_ij etc matrices?
 
-file = "SHlayers_t3_delta0.0_BO_asym-test_60_all.pkl"
+file = "SHlayers_t5_delta0.0_BO_no-matmul-dd_342_all.pkl" # -1.1744869542787129
+file = "SHlayers_t5_delta0.0_BO_nomatmul-dd_s24_s12-15_342_all.pkl"  # Higher sampling grid: -1.1744714437495383
+file = "SHlayers_t5_delta0.0_BO_no-matmul-dd_342_all.pkl"  # s=20
+
+# -1.1744714437495383 # unsorted
+# -1.174470100748761 with sorted s0
+
+plot_Psi_Eloc_multi_params_from_files(
+    file,
+    xy_max=6.0,
+    nx1=50,
+    plot_rAB_target=plotrAB,
+    zlim_eloc=(-1.22, -1.1),
+    rcond=1e-17,
+)
+
+
 #ref: -1.1736534008915154
 #     -1.173653400891507
 #     -1.1736534008915154
@@ -136,47 +151,35 @@ file = "SHlayers_t3_delta0.0_BO_asym-test_60_all.pkl"
 # k_max=0:
 #   Odd delta-i,j: perfect (also even delta-i,j with n, m = 0)
 #   Even delta-i,j: worse (even 0-0).
-
-if "*" in file:
-    for alpha in arange(1.00, 1.01, 0.1):
-        for beta in arange(8.9, 8.91, 0.1):
-            print(alpha, beta)
-            rAB = 1.4
-
-            plot_nonBO_from_files(
-                file,
-                alphas=[0.3, 1.0, 2.0, 3.0],
-                betas=[9.0, 9.0, 9.0, 9.0, 9.0],
-                Rms=[1.2, 1.3, 1.4, 1.5, 1.6],
-                plot_rAB_target=rAB,
-                nx1=50, ny1=50,
-                x1_min=-6, x1_max=6,
-                y1_min=-6, y1_max=6,
-                zlim_eloc=(-1.22, -1.1),
-                rcond = 1e-14,
-                savepic=f"~/Pictures/{file.replace('SHlayers_', '').replace('*.pkl', '')}_alpha{alpha:.2f}_beta{beta:.2f}_rAB{rAB}_multi-test_Eeee.png"
-            )
-
-else:
-
-    with open(file, "rb") as f:
-        layers = pickle.load(f)
-    meta = layers["meta"]
-
-    # plot_Psi_Eloc_by_alpha_beta(
-    plot_Psi_Eloc_multi_params_from_files(
-        file,
-        xy_max= 6.0,
-        nx1=50,
-        plot_rAB_target=plotrAB,
-        zlim_eloc=(-1.22, -1.1),
-        rcond=1e-17,
-    )
-
-
-# for bb in meta["basis_idx"]:
-#     print(bb)
-
-# E, C, cond = solve_HS(layers, 0.75, 0.0, 1e-15)
-# print(E.min())
-# −1.174 475 931
+#
+# if "*" in file:
+#     for alpha in arange(1.00, 1.01, 0.1):
+#         for beta in arange(8.9, 8.91, 0.1):
+#             print(alpha, beta)
+#             rAB = 1.4
+#
+#             plot_nonBO_from_files(
+#                 file,
+#                 alphas=[0.3, 1.0, 2.0, 3.0],
+#                 betas=[9.0, 9.0, 9.0, 9.0, 9.0],
+#                 Rms=[1.2, 1.3, 1.4, 1.5, 1.6],
+#                 plot_rAB_target=rAB,
+#                 nx1=50, ny1=50,
+#                 x1_min=-6, x1_max=6,
+#                 y1_min=-6, y1_max=6,
+#                 zlim_eloc=(-1.22, -1.1),
+#                 rcond = 1e-14,
+#                 savepic=f"~/Pictures/{file.replace('SHlayers_', '').replace('*.pkl', '')}_alpha{alpha:.2f}_beta{beta:.2f}_rAB{rAB}_multi-test_Eeee.png"
+#             )
+#
+# else:
+#
+#     plot_Psi_Eloc_multi_params_from_files(
+#         file,
+#         xy_max= 6.0,
+#         nx1=50,
+#         plot_rAB_target=plotrAB,
+#         zlim_eloc=(-1.22, -1.1),
+#         rcond=1e-17,
+#     )
+#

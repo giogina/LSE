@@ -1,6 +1,8 @@
 import numpy as np
 import pickle
 
+from calc import cancellation_kappa
+
 layers = {}
 Sl = None
 Hl_1 = None
@@ -140,8 +142,10 @@ def accumulate_rAB_layers(B, A_1, A_alpha, A_beta, A_alpha2, A_alphabeta, c_beta
     A_beta = np.asfortranarray(A_beta)
 
     Sp = BT @ B
+    # cancellation_kappa(BT, B, "BT @ B")
     Sl += Sp
     Hl_1 += BT @ A_1
+    # Hl_1 += cancellation_kappa(BT, A_1, "BT @ A_1")
     Hl_alpha += BT @ A_alpha
     Hl_beta += BT @ A_beta
     Hl_alpha2 += BT @ A_alpha2
@@ -164,7 +168,6 @@ def rel_asym(A):
         return 0.0
     return np.linalg.norm(A - A.T) / nrm
 
-# todo: implement call with proper dR range. Look for all 1.4011 that need adapting
 def assemble_HS(SH_layers, alpha, beta, Rm=1.4011, H = None, S = None, debug = False, coords="s12mu"):
 
     if S is None: S = np.zeros_like(next(iter(SH_layers["S"].values())), dtype=np.float64)
@@ -244,14 +247,16 @@ def assemble_HS_multi_alpha(SH_layers, alphas, betas, Rms, coords, H=None, S=Non
     S4 = S.reshape(n, N, n, N).transpose(0, 2, 1, 3)
     H4 = H.reshape(n, N, n, N).transpose(0, 2, 1, 3)
 
-    items = SH_layers["S"].items()
     c_beta2 = float(SH_layers["c_beta2"])
     meta = SH_layers.get("meta", {})
 
     morse_exp = coords.endswith("_morse")
     morse_rm  = (coords == "s12mu_morse")  # only this one uses rm = (rAB0 - Rm)
 
+    # items = SH_layers["S"].items()
+    items = sorted(SH_layers["S"].items(), key=lambda kv: kv[0][1]*np.abs(kv[0][0]-1.45), reverse=True)  # decreasing s0, to add up the tiny tail pieces first. TODO: test if this makes a difference.
     for (rAB0, s0), S_layer in items:
+        print(rAB0, s0)
         # Grab layer matrices once
         H1   = SH_layers["H_1"][rAB0, s0]
         Ha   = SH_layers["H_alpha"][rAB0, s0]

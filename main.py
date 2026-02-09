@@ -14,7 +14,7 @@ k_max = 5
 nm_min = -1  # improves cusps; little effect on energy
 nm_max = 3
 ij_max = 8
-total_max = 5 # todo: Why beta=8 instead of 13, anyway?
+total_max = 7 # todo: Why beta=8 instead of 13, anyway?
 # deltas = [0.0, 0.3]
 delta = 0.0  # TODO: Try delta-sequence instead of r12-poly.
 
@@ -25,22 +25,24 @@ delta = 0.0  # TODO: Try delta-sequence instead of r12-poly.
 
 # todo: maybe it's just a single point that's off in the cusp function?
 
+# todo: turns out B.T @ B has some massive cancellations. Well, actually that's linearly independent functions, so, good? Is it a problem? Absolute remaining values are tiny.
+
 # Could still just be an insufficient basis set...
 
 for nMu in [16]:
     # nMu = 12
     nrPhi = 32
-    nrS = 20  # 30-60 are optimal according to numerical tests (any more, and accumulation of numerical errors starts taking over)
-    nrS12 = 11  # Odd -> s1=s2 allowed
+    nrS = 24  # 30-60 are optimal according to numerical tests (any more, and accumulation of numerical errors starts taking over)
+    nrS12 = 20  # Odd -> s1=s2 allowed; but the corresponding weight ends up zero...
     nrrAB = 24
     sMax = 20
 
     startFromrAB = 0.0 # Use when resuming a calculation
     upTorAB = 12.0
     abRange, wAB = build_rAB_grid(KR = nrrAB, R_min=0.4, R_max=3.0, Re=1.4, gamma = 2.0)
-    print(abRange)
+    # print(abRange)
 
-    label = f"matmul-dd"
+    label = f"no-matmul-dd"
     # label = f"basis-test-{h_max}-{k_max}-{nm_min}..{nm_max}-{ij_max}-{total_max}_sampling-{nMu}-{nrPhi}-{nrS}-{nrS12}-{sMax}"
 
     coords = "s12mu_morse"  # Best performance & accuracy
@@ -73,10 +75,11 @@ for nMu in [16]:
             s1_vals, s2_vals, splitW = split_s(s, rAB, Ku=nrS12, gamma = 4.0)  # high gamma: a lot more s1 ~ s2
             init_rAB_layers(bSize)
 
-            for j, (s1, s2) in enumerate(zip(s1_vals, s2_vals)):
+            order = np.argsort(splitW)  # start with lowest weights, to prevent catastrophic cancellations
+            for s1, s2, ws in zip(s1_vals[order], s2_vals[order], splitW[order]):
                 x1, y1,  _, mu1, _, w1 = sample_s_shell(rAB, s1, Nphi=2, nMu=nMu)  # sample electron 1 on its s1-shell (x-y plane only)
                 x2, y2, z2, mu2, _, w2 = sample_s_shell(rAB, s2, octant=True, nMu=nMu+1, Nphi=nrPhi, s1=s1, gamma_phi = 1.0)   # sample electron 2 on its s2-shell (octant x,y,z>0)
-                B, A_1, A_alpha, A_beta, A_alpha2, A_alphabeta, c_beta2, P = calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, wAB[kab] * sW[ks] * splitW[j], coords, basis_idx, delta, M1M, M_inv, Fij, Fji, Fij_smol, Fji_smol, X)
+                B, A_1, A_alpha, A_beta, A_alpha2, A_alphabeta, c_beta2, P = calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, wAB[kab] * sW[ks] * ws, coords, basis_idx, delta, M1M, M_inv, Fij, Fji, Fij_smol, Fji_smol, X)
                 accumulate_rAB_layers(B, A_1, A_alpha, A_beta, A_alpha2, A_alphabeta, c_beta2)
                 nrP += P
 

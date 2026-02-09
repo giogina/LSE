@@ -117,11 +117,11 @@ def calc_Fij_s12mu(basis_idx):
 def calc_Fij_s12mu_morse(basis_idx):
 
     h, k, n, m, i, j, _, _ = expand_idx(basis_idx.astype(np.float64), "s12mu")
-    Fij = np.stack([n*n - n, n, k*k + k, k, m*m - m, m, i*(i+j-h), i*i-i, i, j*(j+i-h), j*j-j, j, h*(2*(i+j)-h-1)-2*i*j, n*(i-h), m*(j-h), n*j, n*m, j*k, i*k, n*k, m*i, m*k, i*j, np.ones_like(n)], axis=0)
+    Fij = np.stack([n*n - n, n, k*k + k, k, m*m - m, m, i*(i+j-h), i*i-i, i-n, j*(j+i-h), j*j-j, j-m, h*(2*(i+j)-h-1)-2*i*j, n*(i-h), m*(j-h), n*j, n*m, j*k, i*k, n*k, m*i, m*k, i*j, np.ones_like(n)], axis=0)
     Fij_smol = np.stack([n, m, i, j, h, k, np.ones_like(n)], axis=0)
 
     h, k, m, n, j, i, _, _ = expand_idx(basis_idx.astype(np.float64), "s12mu")  # switch 1 <-> 2
-    Fji = np.stack([n*n - n, n, k*k + k, k, m*m - m, m, i*i - i*h + i*j, i*i-i, i, j*j - j*h + i*j, j*j-j, j, -h*h - h + 2*h*(i+j)-2*i*j, n*(i-h), m*(j-h), n*j, n*m, j*k, i*k, n*k, m*i, m*k, i*j, np.ones_like(n)], axis=0)
+    Fji = np.stack([n*n - n, n, k*k + k, k, m*m - m, m, i*(i+j-h), i*i-i, i-n, j*(j+i-h), j*j-j, j-m, h*(2*(i+j)-h-1)-2*i*j, n*(i-h), m*(j-h), n*j, n*m, j*k, i*k, n*k, m*i, m*k, i*j, np.ones_like(n)], axis=0)
     Fji_smol = np.stack([n, m, i, j, h, k, np.ones_like(n)], axis=0)
 
     return Fij, Fji, Fij_smol, Fji_smol
@@ -908,6 +908,37 @@ def calc_H_alphabeta_s12mu_morse_old(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, Min
     return H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_beta_ij, H_beta_ji, H_alpha2, H_alphabeta, c_beta2_1
 
 
+def cancellation_kappa(B, A, label="", eps=1e-30):
+    C = B @ A
+    M = np.abs(B) @ np.abs(A)
+
+    mask = (np.abs(C) > 1e-16)
+    kappa = np.empty_like(C)
+    kappa.fill(np.nan)
+    kappa[mask] = M[mask] / np.abs(C[mask])
+    digits_lost = np.empty_like(C)
+    digits_lost.fill(np.nan)
+    digits_lost[mask] = np.log10(kappa[mask])
+    finite_mask = np.isfinite(digits_lost)
+
+    if not np.any(finite_mask):
+        print(f"{label}: all entries have infinite cancellation (C == 0 everywhere?)")
+        print(B)
+        print(A)
+        print(C)
+    else:
+        max_idx_flat = np.argmax(digits_lost[finite_mask])
+        max_pos = np.flatnonzero(finite_mask)[max_idx_flat]
+        i, j = np.unravel_index(max_pos, digits_lost.shape)
+        print(f"{label}: Max digits lost = {digits_lost[i, j]:.3f}")
+        if digits_lost[i, j] > 5:
+            print(f"  at index (i, j) = ({i}, {j})")
+            print(f"  C[i,j] = {C[i, j]}")
+            print(f"  M[i,j] = {M[i, j]}")
+            # print(
+            #     f"  B[i,:].A[:, j] = {[(k, float(B[i, k]), int(A[k, j])) for k in range(len(A)) if A[k, j] != 0 and B[i, k] != 0.]}")
+
+    return C
 
 def calc_H_alphabeta_s12mu_morse(Fij, Fji, Fij_smol, Fji_smol, rAB, rA1, rB1, rA2, rB2, r12, Minv, M1M, s1, s2, mu1, mu2, delta):
 
@@ -1032,9 +1063,9 @@ def calc_H_alphabeta_s12mu_morse(Fij, Fji, Fij_smol, Fji_smol, rAB, rA1, rB1, rA
     c12_inv_mu2 = dd_mul(c12, inv_mu2)
 
     c_n2 = dd_mul(dd_minus(c13), inv_s1_2)
-    c_n = dd_minus(inv_rA1_rB1)
     c_m2 = dd_mul(dd_minus(c14), inv_s2_2)
-    c_m = dd_minus(inv_rA2_rB2)
+    c_n = dd_from(zero)
+    c_m = dd_from(zero)
     c_k2 = dd_minus(inv_r12_2)
     c_k = dd_from(zero)
     c_i2 = dd_mul(inv_rAB_2_M, c7)
@@ -1065,8 +1096,8 @@ def calc_H_alphabeta_s12mu_morse(Fij, Fji, Fij_smol, Fji_smol, rAB, rA1, rB1, rA
     c_alpha_k = dd_mul(c3, inv_r12)
 
     if delta != 0.0:
-        c_n = dd_add(c_n, dd_mul_exact_scalar(c3a_inv_s1, delta))
-        c_m = dd_add(c_m, dd_mul_exact_scalar(c3b_inv_s2, delta))
+        c_n = dd_mul_exact_scalar(c3a_inv_s1, delta)
+        c_m = dd_mul_exact_scalar(c3b_inv_s2, delta)
         c_i = dd_add(c_i, dd_mul_exact_scalar(dd_mul(c10, inv_mu1), delta))  # todo: merge with cik etc
         c_j = dd_add(c_j, dd_mul_exact_scalar(dd_mul(c11, inv_mu2), delta))
         c_k = dd_mul_exact_scalar(inv_r12, 2.*delta)
@@ -1074,7 +1105,7 @@ def calc_H_alphabeta_s12mu_morse(Fij, Fji, Fij_smol, Fji_smol, rAB, rA1, rB1, rA
         c_alpha_1 = dd_subs(c_alpha_1, dd_mul_exact_scalar(c3, delta))
 
     c_alpha2_1 = dd_minus(dd_add(dd_add(c13, c14), c4))
-    #                                    0          1       2      3        4       5       6           7       8       9         10        11      12      13      14      15      16        17        18      19       20       21        22      23       24
+    #                                    0          1       2      3        4           5       6         7        8        9         10      11      12      13       14       15       16        17        18      19       20       21
     coef_vector_1_hi = np.stack([c_n2[0], c_n[0], c_k2[0], c_k[0], c_m2[0], c_m[0], c_i2[0], c_i2mi[0], c_i[0], c_j2[0], c_j2mj[0], c_j[0], c_h2[0], c_ni[0], c_mj[0], c_nj[0], c_nm[0], c_jk[0], c_ik[0], c_nk[0], c_mi[0], c_mk[0], c_ij[0], c_1[0]], axis=1)
     coef_vector_1_lo = np.stack([c_n2[1], c_n[1], c_k2[1], c_k[1], c_m2[1], c_m[1], c_i2[1], c_i2mi[1], c_i[1], c_j2[1], c_j2mj[1], c_j[1], c_h2[1], c_ni[1], c_mj[1], c_nj[1], c_nm[1], c_jk[1], c_ik[1], c_nk[1], c_mi[1], c_mk[1], c_ij[1], c_1[1]], axis=1)
     coef_vector_alpha_hi = np.stack([c_alpha_n[0], c_alpha_m[0], c_alpha_i[0], c_alpha_j[0], c_alpha_h[0], c_alpha_k[0], c_alpha_1[0]], axis=1)
@@ -1096,6 +1127,16 @@ def calc_H_alphabeta_s12mu_morse(Fij, Fji, Fij_smol, Fji_smol, rAB, rA1, rB1, rA
     if matrix_dd:
         potential = potential_ri_inv_dd(inv_rAB, inv_rA1, inv_rB1, inv_rA2, inv_rB2, inv_r12)
         H_1_ij = dd_add(dd_matmul((coef_vector_1_hi, coef_vector_1_lo), Fij), (potential[0][:, None], potential[1][:, None]))[0]
+
+        # # test
+        # H_1_ij_old = coef_vector_1_hi @ Fij + potential[0][:, None]
+        # D = np.abs(H_1_ij - H_1_ij_old); R = np.maximum(np.abs(H_1_ij_old), np.finfo(float).tiny)
+        # loss = np.zeros_like(D); m = D > 0
+        # loss[m] = 16+np.log10(D[m] / R[m])
+        # i, j = np.unravel_index(np.nanargmax(loss), loss.shape)
+        # print(f"Max digit loss = {loss[i,j]:.3f} at (i,j)=({i},{j}), {H_1_ij[i,j]}, {H_1_ij_old[i,j]}")
+        # print([(k, float(c), int(Fij[:,j][k])) for k, c in enumerate(coef_vector_1_hi[i, :]) if np.abs(int(Fij[:,j][k]))>0 and np.abs(c)>0])
+
         H_1_ji = dd_add(dd_matmul((coef_vector_1_hi, coef_vector_1_lo), Fji), (potential[0][:, None], potential[1][:, None]))[0]
         H_alpha_ij = dd_matmul((coef_vector_alpha_hi, coef_vector_alpha_lo), Fij_smol)[0]  # todo: by only recomputing i, j dependent columns, speed can be almost doubled
         H_alpha_ji = dd_matmul((coef_vector_alpha_hi, coef_vector_alpha_lo), Fji_smol)[0]
@@ -1109,9 +1150,12 @@ def calc_H_alphabeta_s12mu_morse(Fij, Fji, Fij_smol, Fji_smol, rAB, rA1, rB1, rA
             H_alphabeta = np.zeros_like(H_alpha_ij)
             c_beta2_1 = 0.
     else:
+
         potential = potential_ri_inv(inv_rAB[0], inv_rA1[0], inv_rB1[0], inv_rA2[0], inv_rB2[0], inv_r12[0])
+        # H_1_ij = cancellation_kappa(coef_vector_1_hi, Fij, "H_1") + potential[:, None]
         H_1_ij = coef_vector_1_hi @ Fij + potential[:, None]
         H_1_ji = coef_vector_1_hi @ Fji + potential[:, None]
+        # H_alpha_ij = cancellation_kappa(coef_vector_alpha_hi, Fij_smol, "H_alpha")
         H_alpha_ij = coef_vector_alpha_hi @ Fij_smol
         H_alpha_ji = coef_vector_alpha_hi @ Fji_smol
         if Minv[0] > 0.0:
@@ -1293,6 +1337,9 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
             A_beta = A_beta @ X
             # A_beta2 = A_beta2 @ X
 
+        # print("calc_AB returning:")
+        # print("B = ", B)
+        # print("A_1 = ", A_1)
         return B, A_1, A_alpha, A_beta, A_alpha2, A_alphabeta, c_beta2, P
 
 
