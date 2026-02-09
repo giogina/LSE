@@ -173,7 +173,6 @@ else:
         rcond=1e-17,
     )
 
-    # TODO: test higher rAB sampling. s goes over 20 values minimum; guess we might need more for rAB?
 
 # for bb in meta["basis_idx"]:
 #     print(bb)

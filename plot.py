@@ -443,7 +443,7 @@ def plot_Psi_Eloc_multi_params_from_files(
             del layers_new
             gc.collect()
 
-        E, C, cond = solve_HS(H, S, rcond, meta["basis_idx"])
+        E, C, cond = solve_HS(H, S, rcond)
         idx = np.argsort(np.real(E))
         E = np.real(E[idx])
         C = np.real(C[:, idx])

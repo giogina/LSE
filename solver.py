@@ -75,18 +75,18 @@ def gen_residual_norm(H,S,E,c):
     r = H@c - E*(S@c)
     return np.linalg.norm(r) / (np.linalg.norm(H@c) + abs(E)*np.linalg.norm(S@c))
 
-def sensitivity_test(H,eps=1e-11, trials=20, seed=0):
+def sensitivity_test(H,S,eps=1e-14, trials=20, seed=0):
     rng = np.random.default_rng(seed)
-    e, c = eig(H)
+    e, c = eig(H, S)
     e0 = np.min(np.real(e))
     shifts = []
     for _ in range(trials):
-        # dS = rng.standard_normal(S.shape)
-        # dS = 0.5*(dS + dS.T)
+        dS = rng.standard_normal(S.shape)
+        dS = 0.5*(dS + dS.T)
         dH = rng.standard_normal(H.shape)
         Hp = H + eps*np.linalg.norm(H)*dH/np.linalg.norm(dH)
-        # Sp = S + eps*np.linalg.norm(S)*dS/np.linalg.norm(dS)
-        e, c = eig(Hp)
+        Sp = S + eps*np.linalg.norm(S)*dS/np.linalg.norm(dS)
+        e, c = eig(Hp, Sp)
         ep = np.min(np.real(e))
         shifts.append(ep - e0)
     return e0, np.std(shifts), np.max(np.abs(shifts))
@@ -103,12 +103,8 @@ def solve_HS_from_layers(layers, alpha, beta, basis_idx, rcond = 1e-15, coords="
     H, S, frankenBasis = assemble_HS_multi_alpha(layers, alphas=[0.5, 1.0, 1.5, 2.5], betas = [8.0], Rms=[1.4], coords=coords)
     return solve_HS(H, S, rcond=rcond), frankenBasis
 
-def solve_HS(H, S, rcond = 1e-15, basis_idx = None):   # alpha = 0.98
+def solve_HS(H, S, rcond = 1e-15):   # alpha = 0.98
 
-    print(np.linalg.norm(H.T@S - S@H)/np.linalg.norm(H)/np.linalg.norm(S))
-    if basis_idx is not None:
-        scale = 1.0 / (np.maximum(np.abs(H.T@S) + np.abs(S@H), 1e-300))
-        print_H_asymmetry_ranked((H.T@S - S@H)*scale, basis_idx)
     H, S, q = diag_rescale_generalized(H, S)
     print("Removing linearly dependent functions...")
     X, keep, w = reduce_by_overlap(S, rcond)
@@ -118,7 +114,7 @@ def solve_HS(H, S, rcond = 1e-15, basis_idx = None):   # alpha = 0.98
     E, Y = eig(Hp)
     C = q[:, None] * (X @ Y)
 
-    print(sensitivity_test(Hp))
+    # print(sensitivity_test(H, S))
     # print(gen_residual_norm(H,S,E[0],C[:, 0]))
 
     idx = np.argmin(np.real(E))

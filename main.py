@@ -57,14 +57,13 @@ for nMu in [16]:
         M_inv = 1 / M
 
     basis_idx, bSize, X = build_basis_idx(coords, h_max, k_max, nm_min, nm_max, nm_max, ij_max, total_max) # nrDeltas=len(deltas)
-    Fij, Fji = calc_Fij(basis_idx, coords)
+    Fij, Fji, Fij_smol, Fji_smol = calc_Fij(basis_idx, coords)
     print(f"MatSize = {bSize}, Coords: {coords}")
 
     start = time.time()
     nrP = 0
 
     if not separateFiles: init_layers(coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X, total_max, BO)
-    # acc = dd_from(np.zeros((bSize, bSize), dtype = np.float64))
 
     for kab, rAB in enumerate(abRange):
         if rAB < startFromrAB or rAB > upTorAB: continue
@@ -73,21 +72,16 @@ for nMu in [16]:
         for ks, s in enumerate(s_shells):
             s1_vals, s2_vals, splitW = split_s(s, rAB, Ku=nrS12, gamma = 4.0)  # high gamma: a lot more s1 ~ s2
             init_rAB_layers(bSize)
-            acc_inner = np.zeros((bSize, bSize), dtype = np.float128)
 
             for j, (s1, s2) in enumerate(zip(s1_vals, s2_vals)):
                 x1, y1,  _, mu1, _, w1 = sample_s_shell(rAB, s1, Nphi=2, nMu=nMu)  # sample electron 1 on its s1-shell (x-y plane only)
                 x2, y2, z2, mu2, _, w2 = sample_s_shell(rAB, s2, octant=True, nMu=nMu+1, Nphi=nrPhi, s1=s1, gamma_phi = 1.0)   # sample electron 2 on its s2-shell (octant x,y,z>0)
-                B, A_1, A_alpha, A_beta, A_alpha2, A_alphabeta, c_beta2, P = calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, wAB[kab] * sW[ks] * splitW[j], coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X)
+                B, A_1, A_alpha, A_beta, A_alpha2, A_alphabeta, c_beta2, P = calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, wAB[kab] * sW[ks] * splitW[j], coords, basis_idx, delta, M1M, M_inv, Fij, Fji, Fij_smol, Fji_smol, X)
                 accumulate_rAB_layers(B, A_1, A_alpha, A_beta, A_alpha2, A_alphabeta, c_beta2)
                 nrP += P
-                # acc_inner = dd_add(acc_inner, dd_matmul(dd_from(B.T[9]), A_test[0]))
-                # acc_inner = dd_add(acc_inner, dd_matmul(dd_from(B.T[9]), A_test[1]))
 
             print(ks, rAB, s, nrP, time.time() - start)
             accumulate_layers(rAB, s)
-            # acc += acc_inner * np.exp(-s)
-            # print(acc)
 
         if separateFiles: save_layers(label, rAB)
     if not separateFiles: save_layers(label, "all")
