@@ -92,7 +92,7 @@ def print_H_asymmetry_ranked(
     print(f"\nTotal pairs printed: {len(order)} (out of {len(score)} passing min_abs={min_abs})", file=file)
 
 
-def init_layers(coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X, tmax, bo):
+def init_layers(coords, basis_idx, delta, M1M, M_inv, Fij, Fji, Fij_smol, Fji_smol, X, tmax, bo):
     global layers, tMax, BO
     tMax = tmax
     BO = bo
@@ -112,6 +112,8 @@ def init_layers(coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X, tmax, bo):
             "M_inv": M_inv,
             "Fij": Fij,
             "Fji": Fji,
+            "Fij_smol": Fij_smol,
+            "Fji_smol": Fji_smol,
             "X": X
         }
     }

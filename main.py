@@ -11,10 +11,10 @@ M = 1836.1526738  #Previously used: 1836.153
 # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
 h_max = 2
 k_max = 5
-nm_min = 0  # improves cusps; little effect on energy
-nm_max = 2
+nm_min = -1  # improves cusps; little effect on energy
+nm_max = 3
 ij_max = 8
-total_max = 3 # todo: Why beta=8 instead of 13, anyway?
+total_max = 5 # todo: Why beta=8 instead of 13, anyway?
 # deltas = [0.0, 0.3]
 delta = 0.0  # TODO: Try delta-sequence instead of r12-poly.
 
@@ -40,7 +40,7 @@ for nMu in [16]:
     abRange, wAB = build_rAB_grid(KR = nrrAB, R_min=0.4, R_max=3.0, Re=1.4, gamma = 2.0)
     print(abRange)
 
-    label = f"asym-test"
+    label = f"matmul-dd"
     # label = f"basis-test-{h_max}-{k_max}-{nm_min}..{nm_max}-{ij_max}-{total_max}_sampling-{nMu}-{nrPhi}-{nrS}-{nrS12}-{sMax}"
 
     coords = "s12mu_morse"  # Best performance & accuracy
@@ -63,7 +63,7 @@ for nMu in [16]:
     start = time.time()
     nrP = 0
 
-    if not separateFiles: init_layers(coords, basis_idx, delta, M1M, M_inv, Fij, Fji, X, total_max, BO)
+    if not separateFiles: init_layers(coords, basis_idx, delta, M1M, M_inv, Fij, Fji, Fij_smol, Fji_smol, X, total_max, BO)
 
     for kab, rAB in enumerate(abRange):
         if rAB < startFromrAB or rAB > upTorAB: continue

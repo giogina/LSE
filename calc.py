@@ -1073,51 +1073,64 @@ def calc_H_alphabeta_s12mu_morse(Fij, Fji, Fij_smol, Fji_smol, rAB, rA1, rB1, rA
         c_1 = dd_mul_exact_scalar(dd_subs(dd_from(delta), dd_mul_exact_scalar(inv_r12, 2.)), -delta)
         c_alpha_1 = dd_subs(c_alpha_1, dd_mul_exact_scalar(c3, delta))
 
-    c_beta_1 = dd_mul_exact_scalar(dd_mul_exact_scalar(inv_rAB_M, 4.), one) # Todo: + 2. * Minv * one
-    c_beta_n = dd_mul_exact_scalar(dd_mul(inv_s1, c1a), 2.)
-    c_beta_m = dd_mul_exact_scalar(dd_mul(inv_s2, c2a), 2.)
-    c_beta_i = dd_mul(dd_subs(c7, dd_from(2.)), dd_mul_exact_scalar(inv_rAB_M, 2.))
-    c_beta_j = dd_mul(dd_subs(c6, dd_from(2.)), dd_mul_exact_scalar(inv_rAB_M, 2.))
-    c_beta_h = c_beta_1
-
-    c_alphabeta_1 = dd_mul_exact_scalar(dd_add(c1a, c2a), -2.)
     c_alpha2_1 = dd_minus(dd_add(dd_add(c13, c14), c4))
-    c_beta2_1 = dd_mul_exact_scalar(Minv, -4.) # * rm**2
-
     #                                    0          1       2      3        4       5       6           7       8       9         10        11      12      13      14      15      16        17        18      19       20       21        22      23       24
     coef_vector_1_hi = np.stack([c_n2[0], c_n[0], c_k2[0], c_k[0], c_m2[0], c_m[0], c_i2[0], c_i2mi[0], c_i[0], c_j2[0], c_j2mj[0], c_j[0], c_h2[0], c_ni[0], c_mj[0], c_nj[0], c_nm[0], c_jk[0], c_ik[0], c_nk[0], c_mi[0], c_mk[0], c_ij[0], c_1[0]], axis=1)
     coef_vector_1_lo = np.stack([c_n2[1], c_n[1], c_k2[1], c_k[1], c_m2[1], c_m[1], c_i2[1], c_i2mi[1], c_i[1], c_j2[1], c_j2mj[1], c_j[1], c_h2[1], c_ni[1], c_mj[1], c_nj[1], c_nm[1], c_jk[1], c_ik[1], c_nk[1], c_mi[1], c_mk[1], c_ij[1], c_1[1]], axis=1)
     coef_vector_alpha_hi = np.stack([c_alpha_n[0], c_alpha_m[0], c_alpha_i[0], c_alpha_j[0], c_alpha_h[0], c_alpha_k[0], c_alpha_1[0]], axis=1)
     coef_vector_alpha_lo = np.stack([c_alpha_n[1], c_alpha_m[1], c_alpha_i[1], c_alpha_j[1], c_alpha_h[1], c_alpha_k[1], c_alpha_1[1]], axis=1)
-    coef_vector_beta_hi = np.stack([c_beta_n[0], c_beta_m[0], c_beta_i[0], c_beta_j[0], c_beta_h[0], zero, c_beta_1[0]], axis=1)
-    coef_vector_beta_lo = np.stack([c_beta_n[1], c_beta_m[1], c_beta_i[1], c_beta_j[1], c_beta_h[1], zero, c_beta_1[1]], axis=1)
 
-    matrix_dd = True # use double-double precision for matmul
+    if Minv[0] > 0.0: # non-BO
+        c_beta_1 = dd_mul_exact_scalar(dd_mul_exact_scalar(inv_rAB_M, 4.), one) # Omitted +2*Minv; which is re-inserted in the layer reassembly step.
+        c_beta_n = dd_mul_exact_scalar(dd_mul(inv_s1, c1a), 2.)
+        c_beta_m = dd_mul_exact_scalar(dd_mul(inv_s2, c2a), 2.)
+        c_beta_i = dd_mul(dd_subs(c7, dd_from(2.)), dd_mul_exact_scalar(inv_rAB_M, 2.))
+        c_beta_j = dd_mul(dd_subs(c6, dd_from(2.)), dd_mul_exact_scalar(inv_rAB_M, 2.))
+        c_beta_h = c_beta_1
+        c_alphabeta_1 = dd_mul_exact_scalar(dd_add(c1a, c2a), -2.)
+        c_beta2_1 = dd_mul_exact_scalar(Minv, -4.) # * rm**2
+        coef_vector_beta_hi = np.stack([c_beta_n[0], c_beta_m[0], c_beta_i[0], c_beta_j[0], c_beta_h[0], zero, c_beta_1[0]], axis=1)
+        coef_vector_beta_lo = np.stack([c_beta_n[1], c_beta_m[1], c_beta_i[1], c_beta_j[1], c_beta_h[1], zero, c_beta_1[1]], axis=1)
+
+    matrix_dd = False # use double-double precision for matmul
     if matrix_dd:
         potential = potential_ri_inv_dd(inv_rAB, inv_rA1, inv_rB1, inv_rA2, inv_rB2, inv_r12)
-        H_1_ij = dd_add(dd_matmul((coef_vector_1_hi, coef_vector_1_lo), Fij), (potential[0][:, None], potential[1][:, None]))
-        H_1_ji = dd_add(dd_matmul((coef_vector_1_hi, coef_vector_1_lo), Fji), (potential[0][:, None], potential[1][:, None]))
-        H_alpha_ij = dd_matmul((coef_vector_alpha_hi, coef_vector_alpha_lo), Fij)  # todo: by just assembling columns "switched" directly, speed can be doubled
-        H_alpha_ji = dd_matmul((coef_vector_alpha_hi, coef_vector_alpha_lo), Fji)
-        H_beta_ij = dd_matmul((coef_vector_beta_hi, coef_vector_beta_lo), Fij)
-        H_beta_ji = dd_matmul((coef_vector_beta_hi, coef_vector_beta_lo), Fji)
+        H_1_ij = dd_add(dd_matmul((coef_vector_1_hi, coef_vector_1_lo), Fij), (potential[0][:, None], potential[1][:, None]))[0]
+        H_1_ji = dd_add(dd_matmul((coef_vector_1_hi, coef_vector_1_lo), Fji), (potential[0][:, None], potential[1][:, None]))[0]
+        H_alpha_ij = dd_matmul((coef_vector_alpha_hi, coef_vector_alpha_lo), Fij_smol)[0]  # todo: by only recomputing i, j dependent columns, speed can be almost doubled
+        H_alpha_ji = dd_matmul((coef_vector_alpha_hi, coef_vector_alpha_lo), Fji_smol)[0]
+        if Minv[0] > 0.0:
+            H_beta_ij = dd_matmul((coef_vector_beta_hi, coef_vector_beta_lo), Fij_smol)[0]
+            H_beta_ji = dd_matmul((coef_vector_beta_hi, coef_vector_beta_lo), Fji_smol)[0]
+            H_alphabeta = c_alphabeta_1[0][:, None]
+        else:
+            H_beta_ij = np.zeros_like(H_alpha_ij)
+            H_beta_ji = np.zeros_like(H_alpha_ij)
+            H_alphabeta = np.zeros_like(H_alpha_ij)
+            c_beta2_1 = 0.
     else:
         potential = potential_ri_inv(inv_rAB[0], inv_rA1[0], inv_rB1[0], inv_rA2[0], inv_rB2[0], inv_r12[0])
-        H_1_ij = coef_vector_1_hi @ Fij + potential[0][:, None]
-        H_1_ji = coef_vector_1_hi @ Fji + potential[0][:, None]
-        H_alpha_ij = coef_vector_alpha_hi @ Fij
-        H_alpha_ji = coef_vector_alpha_hi @ Fji
-        H_beta_ij = coef_vector_beta_hi @ Fij
-        H_beta_ji = coef_vector_beta_hi @ Fji
+        H_1_ij = coef_vector_1_hi @ Fij + potential[:, None]
+        H_1_ji = coef_vector_1_hi @ Fji + potential[:, None]
+        H_alpha_ij = coef_vector_alpha_hi @ Fij_smol
+        H_alpha_ji = coef_vector_alpha_hi @ Fji_smol
+        if Minv[0] > 0.0:
+            H_beta_ij = coef_vector_beta_hi @ Fij_smol
+            H_beta_ji = coef_vector_beta_hi @ Fji_smol
+            H_alphabeta = c_alphabeta_1[0][:, None]
+        else:
+            H_beta_ij = np.zeros_like(H_alpha_ij)
+            H_beta_ji = np.zeros_like(H_alpha_ij)
+            H_alphabeta = np.zeros_like(H_alpha_ij)
+            c_beta2_1 = 0.
 
     H_alpha2 = c_alpha2_1[0][:, None]
-    H_alphabeta = c_alphabeta_1[0][:, None]
 
     # diff = H_alpha_ij_old - H_alpha_ij[0]
     # dmi, dmj = np.unravel_index(np.argmax(np.abs(diff)), diff.shape)
     # print("alpha: ||Δ|| =", np.linalg.norm(diff), " max|Δ| =", np.max(np.abs(diff))/H_alpha_ij[0][dmi, dmj], " at", int(dmi), int(dmj), ": ", H_alpha_ij_old[dmi, dmj], "vs.", H_alpha_ij[0][dmi, dmj])
 
-    return H_1_ij[0], H_1_ji[0], H_alpha_ij[0], H_alpha_ji[0], H_beta_ij[0], H_beta_ji[0], H_alpha2, H_alphabeta, c_beta2_1[0]
+    return H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_beta_ij, H_beta_ji, H_alpha2, H_alphabeta, c_beta2_1
 
 
 def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, basis_idx, delta, M1M, M_inv, Fij, Fji, Fij_smol, Fji_smol, X=None):
@@ -1234,45 +1247,6 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
             A_alpha2 = H_alpha2 * B
             A_alphabeta = H_alphabeta * B
             # A_beta2 = H_beta2 * B
-
-        elif coords == "s12uv_morse":
-            mup = (mu1[:, None] + mu2[None, :]).ravel()
-            mum = (mu1[:, None] - mu2[None, :]).ravel()
-            u = np.cos(0.5 * mup)
-            v = np.cos(0.5 * mum)
-            H_1_12, H_1_21, H_alpha_12, H_alpha_21, H_beta_12, H_beta_21, H_alpha2, H_alphabeta, c_beta2 = calc_H_alphabeta_s12uv_morse(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1, s2, mu1, mu2, mup, mum, delta)
-
-
-            u_p = power_table(u, ij_max)
-            v_p = power_table(v, ij_max)
-
-            # Assemble basis functions from power matrices
-            B = np.broadcast_to(rAB**h_idx, (P, matSize)).copy()
-            B *= r12_p[:, k_idx]
-            B *= np.exp(-delta*r12)[:, None]
-            B *= u_p[:, i_idx]
-            B *= v_p[:, j_idx]  # The u, v part is automatically symmetric in 1,2 as long as only even powers are used. (u needs even powers to maintain A,B symmetry.)
-
-            if np.ndim(s1) == 0:
-                part_12 = s1 ** n_idx * s2 ** m_idx
-                part_21 = s1 ** m_idx * s2 ** n_idx
-            else: # just for plotting
-                part_12 = (s1[:, None] ** n_idx[None, :]) * s2 ** m_idx
-                part_21 = (s1[:, None] ** m_idx[None, :]) * s2 ** n_idx
-
-            sqrtW = np.sqrt(W * (w1[:, None] * w2[None, :]).ravel())  # (P,)
-            B *= sqrtW[:, None]
-
-            B_12 = B * part_12
-            B_21 = B * part_21
-
-            B = B_12 + B_21  # 3xP, small entries weight*
-
-            A_1 = H_1_12 * B_12 + H_1_21 * B_21
-            A_alpha = H_alpha_12 * B_12 + H_alpha_21 * B_21
-            A_beta = H_beta_12 * B_12 + H_beta_21 * B_21
-            A_alpha2 = H_alpha2 * B
-            A_alphabeta = H_alphabeta * B
 
         elif coords == "rij":
             H_1, H_alpha, H_beta, H_alpha2, H_alphabeta, c_beta2, inv_rA, inv_rB = calc_H_alphabeta_rij(Fij, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, delta)
