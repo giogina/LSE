@@ -101,6 +101,7 @@ def solve_HS_from_layers(layers, alpha, beta, basis_idx, rcond = 1e-15, coords="
     # H, S = assemble_HS(layers, alpha, beta, coords=coords)
     # H, S, frankenBasis = assemble_HS_multi_alpha(layers, alphas=[0.3, 1.0, 1.5, 2.5], betas = [8.5, 9.0, 9.5], Rms=[1.3, 1.4, 1.5], coords=coords)
     H, S, frankenBasis = assemble_HS_multi_alpha(layers, alphas=[0.5, 1.0, 1.5, 2.5], betas = [8.0], Rms=[1.4], coords=coords)
+
     return solve_HS(H, S, rcond=rcond), frankenBasis
 
 def solve_HS(H, S, rcond = 1e-15):   # alpha = 0.98
@@ -113,6 +114,9 @@ def solve_HS(H, S, rcond = 1e-15):   # alpha = 0.98
     Hp = X.T @ H @ X
     E, Y = eig(Hp)
     C = q[:, None] * (X @ Y)
+
+    print(f"intensity test: {[float(C[ic, 0]/np.linalg.norm(C[:, 0])) for ic in [2200, 1581, 2053, 2219, 1942, 1640]]}")
+    print(f"intensity test: {[float(C[ic, 0]/np.linalg.norm(C[:, 0])) for ic in [2001, 2002, 2003, 2004, 2005]]}")
 
     # print(sensitivity_test(H, S))
     # print(gen_residual_norm(H,S,E[0],C[:, 0]))

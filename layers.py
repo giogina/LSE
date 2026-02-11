@@ -1,5 +1,6 @@
 import numpy as np
 import pickle
+from double_precision import *
 
 from calc import cancellation_kappa
 
@@ -247,17 +248,25 @@ def assemble_HS_multi_alpha(SH_layers, alphas, betas, Rms, coords, H=None, S=Non
     S4 = S.reshape(n, N, n, N).transpose(0, 2, 1, 3)
     H4 = H.reshape(n, N, n, N).transpose(0, 2, 1, 3)
 
+    # --- cancellation audit (alpha-diagonal only) ---
+    tiny = np.finfo(np.float64).tiny
+
+    # abs-sum accumulators for alpha-diagonal stitched submatrices:
+    # store as (na, nb, nb, N, N) matching S4/H4 block layout restricted to one alpha
+    absS_a = np.zeros((na, nb, nb, N, N), dtype=np.float64)
+    absH_a = np.zeros((na, nb, nb, N, N), dtype=np.float64)
+
+
     c_beta2 = float(SH_layers["c_beta2"])
     meta = SH_layers.get("meta", {})
 
     morse_exp = coords.endswith("_morse")
     morse_rm  = (coords == "s12mu_morse")  # only this one uses rm = (rAB0 - Rm)
 
-    # items = SH_layers["S"].items()
-    items = sorted(SH_layers["S"].items(), key=lambda kv: kv[0][1]*np.abs(kv[0][0]-1.45), reverse=True)  # decreasing s0, to add up the tiny tail pieces first. TODO: test if this makes a difference.
+    items = SH_layers["S"].items()
+    # items = sorted(SH_layers["S"].items(), key=lambda kv: kv[0][1]*np.abs(kv[0][0]-1.45), reverse=True)  # decreasing s0, to add up the tiny tail pieces first. TODO: test if this makes a difference.
     for (rAB0, s0), S_layer in items:
-        print(rAB0, s0)
-        # Grab layer matrices once
+
         H1   = SH_layers["H_1"][rAB0, s0]
         Ha   = SH_layers["H_alpha"][rAB0, s0]
         Ha2  = SH_layers["H_alpha2"][rAB0, s0]
@@ -277,15 +286,15 @@ def assemble_HS_multi_alpha(SH_layers, alphas, betas, Rms, coords, H=None, S=Non
             bj = B[j]
             rmj = rm[j] if morse_rm else 1.0
 
+            cf = c_beta2 * (rmj * rmj) * (bj * bj)
+            if morse_rm:
+                cf += 2.0 * float(meta["M_inv"]) * bj
+
             out = H1.copy()
             out += Ha  * aj
             out += Ha2 * (aj * aj)
             out += Hb  * (rmj * bj)
             out += Hab * (rmj * aj * bj)
-
-            cf = c_beta2 * (rmj * rmj) * (bj * bj)
-            if morse_rm:
-                cf += 2.0 * float(meta["M_inv"]) * bj
 
             out += S_layer * cf
             Hj[j] = out
@@ -314,9 +323,157 @@ def assemble_HS_multi_alpha(SH_layers, alphas, betas, Rms, coords, H=None, S=Non
             S4[:, j] += fj * S_layer                  # broadcast over (N,N)
             H4[:, j] += fj * Hj[j]                    # broadcast over (N,N)
 
+
+            # --- cancellation audit update (alpha-diagonal only) ---
+            ja = j // nb           # alpha index of block-column j
+            jb = j % nb            # beta index within that alpha
+            i0 = ja * nb
+            i1 = i0 + nb           # rows (in block indices) that share this alpha
+
+            # abs contribution for S and H on the alpha-diagonal submatrix
+            fj_sub = exps[i0:i1, j].reshape(nb, 1, 1)     # (nb,1,1)
+            abs_fj = np.abs(fj_sub)
+
+            absS_a[ja][:, jb] += abs_fj * np.abs(S_layer)
+            absH_a[ja][:, jb] += abs_fj * np.abs(Hj[j])
+
     blocks = tuple({"alpha": float(A[k]), "beta": float(B[k]), "Rm": float(RM[k])} for k in range(n))
 
     # print_H_asymmetry_ranked(H, SH_layers["meta"]["basis_idx"])
+
+    # --- compute kappa stats per alpha (alpha-diagonal stitched blocks) ---
+    kappa_report = []
+    top_k = 20
+    thresh = 2.0  # "lost digits" threshold: log10(kappa) > 3
+
+    for ia in range(na):
+        rs = ia * nb * N
+        re = (ia + 1) * nb * N
+
+        S_sub = S[rs:re, rs:re]
+        H_sub = H[rs:re, rs:re]
+
+        absS_sub = absS_a[ia].transpose(0, 2, 1, 3).reshape(nb * N, nb * N)
+        absH_sub = absH_a[ia].transpose(0, 2, 1, 3).reshape(nb * N, nb * N)
+
+        denomS = np.maximum(np.abs(S_sub), tiny)
+        denomH = np.maximum(np.abs(H_sub), tiny)
+
+        kappaS = absS_sub / denomS
+        kappaH = absH_sub / denomH
+
+        digS = np.log10(kappaS, where=(absS_sub > 0.0), out=np.full_like(kappaS, np.nan))
+        digH = np.log10(kappaH, where=(absH_sub > 0.0), out=np.full_like(kappaH, np.nan))
+
+        maskS = (absS_sub > 0.0) & np.isfinite(digS)
+        maskH = (absH_sub > 0.0) & np.isfinite(digH)
+
+        # "bad" entries count
+        badS = maskS & (digS > thresh)
+        badH = maskH & (digH > thresh)
+
+        nS = int(np.count_nonzero(maskS))
+        nH = int(np.count_nonzero(maskH))
+        nBadS = int(np.count_nonzero(badS))
+        nBadH = int(np.count_nonzero(badH))
+
+        # helper to extract top-k indices
+        def topk_entries(dig, mask, abs_sum, sum_mat, label):
+            if not np.any(mask):
+                return []
+
+            vals = dig.copy()
+            vals[~mask] = -np.inf
+
+            k = min(top_k, int(np.count_nonzero(mask)))
+            flat = vals.ravel()
+
+            # argpartition for speed, then sort those k
+            idx_part = np.argpartition(flat, -k)[-k:]
+            idx_sorted = idx_part[np.argsort(flat[idx_part])[::-1]]
+
+            out = []
+            for idx in idx_sorted:
+                v = float(flat[idx])
+                if not np.isfinite(v):
+                    continue
+                r, c = np.unravel_index(idx, vals.shape)
+
+                # decode within alpha-diagonal stitched block:
+                # r = beta_i*N + row_in_block, c = beta_j*N + col_in_block
+                bi, ri = divmod(r, N)
+                bj, cj = divmod(c, N)
+
+                out.append({
+                    "lost_digits": v,
+                    "global_rc": (rs + r, rs + c),
+                    "local_rc": (r, c),
+                    "beta_rc": (int(bi), int(bj), int(ri), int(cj)),
+                    "sum_val": float(sum_mat[r, c]),
+                    "abs_sum": float(abs_sum[r, c]),
+                })
+            return out
+
+        topS = topk_entries(digS, maskS, absS_sub, S_sub, "S")
+        topH = topk_entries(digH, maskH, absH_sub, H_sub, "H")
+
+        kappa_report.append({
+            "alpha": float(alphas[ia]),
+            "S": {
+                "mean_log10_kappa": float(np.nanmean(digS[maskS])) if np.any(maskS) else float("nan"),
+                "worst_log10_kappa": float(np.nanmax(digS[maskS])) if np.any(maskS) else float("nan"),
+                "n_entries": nS,
+                "n_worse_than_3": nBadS,
+                "frac_worse_than_3": (nBadS / nS) if nS else float("nan"),
+                "top": topS,
+            },
+            "H": {
+                "mean_log10_kappa": float(np.nanmean(digH[maskH])) if np.any(maskH) else float("nan"),
+                "worst_log10_kappa": float(np.nanmax(digH[maskH])) if np.any(maskH) else float("nan"),
+                "n_entries": nH,
+                "n_worse_than_3": nBadH,
+                "frac_worse_than_3": (nBadH / nH) if nH else float("nan"),
+                "top": topH,
+            },
+        })
+
+        # print a compact summary line
+        a = float(alphas[ia])
+        print(
+            f"alpha={a:.6g}  "
+            f"S: mean={kappa_report[-1]['S']['mean_log10_kappa']:.3g}, worst={kappa_report[-1]['S']['worst_log10_kappa']:.3g}, "
+            f"> {thresh} digits={nBadS}/{nS} ({(nBadS / nS * 100 if nS else 0):.2f}%)   "
+            f"H: mean={kappa_report[-1]['H']['mean_log10_kappa']:.3g}, worst={kappa_report[-1]['H']['worst_log10_kappa']:.3g}, "
+            f"> {thresh} digits={nBadH}/{nH} ({(nBadH / nH * 100 if nH else 0):.2f}%)"
+        )
+
+        # print worst offenders (H only, usually what you care about)
+        print("  Worst H entries (lost_digits, global(i,j), beta_i,beta_j,row,col, sum, abs_sum):")
+        for t in topH[:top_k]:
+            bi, bj, ri, cj = t["beta_rc"]
+            gi, gj = t["global_rc"]
+            print(
+                f"    {t['lost_digits']:.2f}  ({gi},{gj})  "
+                f"b=({bi},{bj}) rc=({ri},{cj})  "
+                f"sum={t['sum_val']:.6e}  abs_sum={t['abs_sum']:.6e}"
+            )
+
+
+        t = topH[0]
+        bi, bj, ri, cj = t["beta_rc"]
+        acc = 0.
+        acc_dd = dd_from(0.)
+        for (rAB0, s0), S_layer in items:
+            H1 = SH_layers["H_1"][rAB0, s0]
+            Ha = SH_layers["H_alpha"][rAB0, s0]
+            Ha2 = SH_layers["H_alpha2"][rAB0, s0]
+
+            hh1 = H1[ri, cj] * np.exp(-2.*alphas[ia]*s0)
+            hha = Ha[ri, cj] * alphas[ia] * np.exp(-2.*alphas[ia]*s0)
+            hha2 = Ha2[ri, cj] * alphas[ia]**2 * np.exp(-2.*alphas[ia]*s0)
+            acc += hh1+hha+hha2
+            acc_dd = dd_add(acc_dd, dd_add(dd_add(dd_from(hh1), dd_from(hha)), dd_from(hha2)))
+            print(f"{alphas[ia]}, {float(s0):.5f}, H1: {hh1:.3e}, Ha: {hha:.3e}, Ha2: {hha2:.3e}, acc: {acc:.3e}, delta acc_dd: {(acc-acc_dd[0]):.3e}")
 
     return H, S, StitchedBasis(N=N, blocks=blocks)
 

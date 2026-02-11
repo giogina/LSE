@@ -90,6 +90,8 @@ plotrAB = 1.4
 #  Would this be different (8 vs 13) if using h-independent tmax check?
 #  How "product-like" does the wave function behave in the first place?
 
+# todo: Check assemble_HS_multi_alpha for cancellations.
+
 # file = "SHlayers_t6_delta0.0_multialpha-new_rAB_clustering_775_all.pkl"
 # file = "SHlayers_t6_delta0.1_BO_multialpha_426_all.pkl"
 # file = "SHlayers_t5_delta0.0_multialpha-new_rAB_clustering_525_all.pkl"  # nrrAB=16
@@ -104,6 +106,11 @@ file = "SHlayers_t8_delta0.0_BO_nMu_test_16_875_all.pkl" # new leggauss-phi samp
 file = "SHlayers_t5_delta0.0_BO_no-matmul-dd_342_all.pkl" # -1.1744869542787129
 file = "SHlayers_t5_delta0.0_BO_nomatmul-dd_s24_s12-15_342_all.pkl"  # Higher sampling grid: -1.1744714437495383
 file = "SHlayers_t5_delta0.0_BO_no-matmul-dd_342_all.pkl"  # s=20
+file = "SHlayers_t6_delta0.0_BO_no-matmul-dd_486_all.pkl"
+file = "SHlayers_t7_delta0.0_BO_no-matmul-dd_756_all.pkl"
+file = "SHlayers_t7_delta0.0_BO_sMax30_756_all.pkl"
+
+# todo: alpha=0.1 seems to be numerically unstable (especially now) - since the outer matrices aren't being squished down enough and cancellation happens while assembling H, S from layers?
 
 # -1.1744714437495383 # unsorted
 # -1.174470100748761 with sorted s0
@@ -114,7 +121,8 @@ plot_Psi_Eloc_multi_params_from_files(
     nx1=50,
     plot_rAB_target=plotrAB,
     zlim_eloc=(-1.22, -1.1),
-    rcond=1e-17,
+    # zlim_eloc=(-1.18, -1.17),
+    rcond=1e-14,
 )
 
 

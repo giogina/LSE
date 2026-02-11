@@ -9,10 +9,10 @@ BO = True
 M = 1836.1526738  #Previously used: 1836.153
 
 # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
-h_max = 2
+h_max = 3
 k_max = 5
 nm_min = -1  # improves cusps; little effect on energy
-nm_max = 3
+nm_max = 4
 ij_max = 8
 total_max = 7 # todo: Why beta=8 instead of 13, anyway?
 # deltas = [0.0, 0.3]
@@ -32,17 +32,17 @@ delta = 0.0  # TODO: Try delta-sequence instead of r12-poly.
 for nMu in [16]:
     # nMu = 12
     nrPhi = 32
-    nrS = 24  # 30-60 are optimal according to numerical tests (any more, and accumulation of numerical errors starts taking over)
+    nrS = 30  # 30-60 are optimal according to numerical tests (any more, and accumulation of numerical errors starts taking over)
     nrS12 = 20  # Odd -> s1=s2 allowed; but the corresponding weight ends up zero...
     nrrAB = 24
-    sMax = 20
+    sMax = 50 # todo: careful: sMax=20 is insufficient with small alpha and high nm_max (H entries ~ (s^4 * exp(-alpha*s))^2
 
     startFromrAB = 0.0 # Use when resuming a calculation
     upTorAB = 12.0
     abRange, wAB = build_rAB_grid(KR = nrrAB, R_min=0.4, R_max=3.0, Re=1.4, gamma = 2.0)
     # print(abRange)
 
-    label = f"no-matmul-dd"
+    label = f"sMax30"
     # label = f"basis-test-{h_max}-{k_max}-{nm_min}..{nm_max}-{ij_max}-{total_max}_sampling-{nMu}-{nrPhi}-{nrS}-{nrS12}-{sMax}"
 
     coords = "s12mu_morse"  # Best performance & accuracy

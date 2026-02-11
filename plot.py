@@ -190,9 +190,9 @@ def plot_Psi_Eloc_multi_params_from_files(
     z2_init=0.4,
 
     # initial parameter text
-    # alpha_text_init="0.2, 0.5, 0.8, 1.1",  # 0.2,
+    alpha_text_init="0.4, 0.7, 1.0, 1.5",  # 0.2,
     # beta_rm_text_init="7.6 1.2; 7.8 1.3; 8.0 1.4",
-    alpha_text_init="1.0",
+    # alpha_text_init="1.0",
     beta_rm_text_init="8.0 1.4",
 ):
     """
@@ -447,6 +447,7 @@ def plot_Psi_Eloc_multi_params_from_files(
             del layers_new
             gc.collect()
 
+        print(f"intensity test: {[meta['basis_idx'][(ic % frankenBasis.N), :] for ic in [2200, 1581, 2053, 2219, 1942, 1640, 2071, 2227, 1843, 1642 ]]}")
         E, C, cond = solve_HS(H, S, rcond)
         idx = np.argsort(np.real(E))
         E = np.real(E[idx])
@@ -637,7 +638,7 @@ def plot_Psi_Eloc_multi_params_from_files(
             Zne = cusp_ne.reshape(Y1.shape)
 
             xmin, xmax = -3.0, 3.0
-            ymin, ymax = 0.0, 1.0
+            ymin, ymax = 1e-14, 1.0
             mask = (X1 < xmin) | (X1 > xmax) | (Y1 < ymin) | (Y1 > ymax)
             Zee = Zee.copy();  Zne = Zne.copy()
             Zee[mask] = np.nan

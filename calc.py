@@ -159,7 +159,7 @@ def calc_Fij(basis_idx, coords):
     Fij_smol, Fji_smol = None, None
     if coords == "stmu":
         Fij, Fji = calc_Fij_stmu(basis_idx)
-    elif coords == "s12mu" :
+    elif coords == "s12mu":  # (this one also still applies to _morse with non-dd calc_H_alphabeta)
         Fij, Fji = calc_Fij_s12mu(basis_idx)
     elif coords == "s12mu_morse":
         Fij, Fji, Fij_smol, Fji_smol = calc_Fij_s12mu_morse(basis_idx)
@@ -729,7 +729,7 @@ def calc_H_alphabeta_s12mu(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, Minv, M1M, s1
     return H_1_ij, H_1_ji, H_alpha_ij, H_alpha_ji, H_beta_ij, H_beta_ji, H_alpha2, H_alphabeta, c_beta2_1
 
 
-def calc_H_alphabeta_s12mu_morse_old(Fij, Fji, rAB, rA1, rB1, rA2, rB2, r12, Minv, M1M, s1, s2, mu1, mu2, delta):
+def calc_H_alphabeta_s12mu_morse(Fij, Fji, Fij_smol, Fji_smol, rAB, rA1, rB1, rA2, rB2, r12, Minv, M1M, s1, s2, mu1, mu2, delta):
 
     # rAB, s1, s2 - only primitives (scalars)
     inv_rAB = 1.0 / rAB
@@ -940,7 +940,7 @@ def cancellation_kappa(B, A, label="", eps=1e-30):
 
     return C
 
-def calc_H_alphabeta_s12mu_morse(Fij, Fji, Fij_smol, Fji_smol, rAB, rA1, rB1, rA2, rB2, r12, Minv, M1M, s1, s2, mu1, mu2, delta):
+def calc_H_alphabeta_s12mu_morse_dd(Fij, Fji, Fij_smol, Fji_smol, rAB, rA1, rB1, rA2, rB2, r12, Minv, M1M, s1, s2, mu1, mu2, delta):
 
     # rAB, s1, s2 - only primitives (scalars)
     rAB_dd = dd_from(rAB)
@@ -1257,7 +1257,7 @@ def calc_AB(x1, y1, x2, y2, z2, rAB, s, s1, s2, mu1, mu2, w1, w2, W, coords, bas
 
                 # Fij_old, Fji_old = calc_Fij(basis_idx, "s12mu")
                 # H_1_12_old, H_1_21_old, H_alpha_12_old, H_alpha_21_old, H_beta_12_old, H_beta_21_old, H_alpha2_old, H_alphabeta_old, c_beta2_old = calc_H_alphabeta_s12mu_morse_old(Fij_old, Fji_old, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1, s2, mu1, mu2, delta)
-                H_1_12, H_1_21, H_alpha_12, H_alpha_21, H_beta_12, H_beta_21, H_alpha2, H_alphabeta, c_beta2 = calc_H_alphabeta_s12mu_morse(Fij, Fji, Fij_smol, Fji_smol, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1, s2, mu1, mu2, delta)
+                H_1_12, H_1_21, H_alpha_12, H_alpha_21, H_beta_12, H_beta_21, H_alpha2, H_alphabeta, c_beta2 = calc_H_alphabeta_s12mu_morse_dd(Fij, Fji, Fij_smol, Fji_smol, rAB, rA1, rB1, rA2, rB2, r12, M_inv, M1M, s1, s2, mu1, mu2, delta)
 
             mu1_p = power_table(mu1, ij_max)
             mu2_p = power_table(mu2, ij_max)
