@@ -5,16 +5,16 @@ from sampling import *
 from coords import *
 from layers import *
 
-BO = True
+BO = False
 M = 1836.1526738  #Previously used: 1836.153
 
 # Basis set maximum powers (rAB^h * r12^k * s^n * t^m * (mu1^i*mu2^j + mu1^j*mu2^i) * exp( - alpha*s - beta*rAB - gamma*r12 )
 h_max = 3
-k_max = 5
+k_max = 4
 nm_min = -1  # improves cusps; little effect on energy
 nm_max = 4
-ij_max = 8
-total_max = 7 # todo: Why beta=8 instead of 13, anyway?
+ij_max = 5
+total_max = 5 # todo: Why beta=8 instead of 13, anyway?
 # deltas = [0.0, 0.3]
 delta = 0.0  # TODO: Try delta-sequence instead of r12-poly.
 

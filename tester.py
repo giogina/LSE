@@ -98,17 +98,17 @@ plotrAB = 1.4
 
 # file = "SHlayers_t6_delta0.0_BO_nMu_test_24_426_all.pkl"
 # file = "SHlayers_t6_delta0.0_BO_nMu_test_24_426_gamma1.0.pkl"  # with split_s_gamma = 1.0
-file = "SHlayers_t8_delta0.0_BO_nMu_test_16_875_all.pkl" # new leggauss-phi sampling (16-32-24)
+# file = "SHlayers_t8_delta0.0_BO_nMu_test_16_875_all.pkl" # new leggauss-phi sampling (16-32-24)
 # file = "SHlayers_t8_delta0.0_BO_nMu_16_arange_phi_875_all.pkl" # new leggauss-phi sampling (16-32-24)
 # file = "SHlayers_t6_delta0.0_BO_kL_306_all.pkl"
 # file = "SHlayers_t6_delta0.0_BO_k6n4_609_all.pkl" # Increasing the k dependence too much gives very strange results?!
-
-file = "SHlayers_t5_delta0.0_BO_no-matmul-dd_342_all.pkl" # -1.1744869542787129
-file = "SHlayers_t5_delta0.0_BO_nomatmul-dd_s24_s12-15_342_all.pkl"  # Higher sampling grid: -1.1744714437495383
-file = "SHlayers_t5_delta0.0_BO_no-matmul-dd_342_all.pkl"  # s=20
-file = "SHlayers_t6_delta0.0_BO_no-matmul-dd_486_all.pkl"
-file = "SHlayers_t7_delta0.0_BO_no-matmul-dd_756_all.pkl"
-file = "SHlayers_t7_delta0.0_BO_sMax30_756_all.pkl"
+#
+# file = "SHlayers_t5_delta0.0_BO_no-matmul-dd_342_all.pkl" # -1.1744869542787129
+# file = "SHlayers_t5_delta0.0_BO_nomatmul-dd_s24_s12-15_342_all.pkl"  # Higher sampling grid: -1.1744714437495383
+# file = "SHlayers_t5_delta0.0_BO_no-matmul-dd_342_all.pkl"  # s=20
+# file = "SHlayers_t6_delta0.0_BO_no-matmul-dd_486_all.pkl"
+# file = "SHlayers_t7_delta0.0_BO_no-matmul-dd_756_all.pkl"
+# file = "SHlayers_t7_delta0.0_BO_sMax30_756_all.pkl"
 
 # todo: alpha=0.1 seems to be numerically unstable (especially now) - since the outer matrices aren't being squished down enough and cancellation happens while assembling H, S from layers?
 
