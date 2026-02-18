@@ -282,6 +282,53 @@ def dd_exp(a):
     return dd_mul(exp_hi_dd, corr)
 
 
+def dd_tensordot_a0(exps, admat):
+    """
+    ad_S = sum_a exps[a] * admat[a,...] in DD.
+    exps: (Na,) DD
+    admat: (Na, ...) DD
+    returns (...) DD
+    """
+    ex_hi, ex_lo = exps
+    A_hi, A_lo   = admat
+
+    Na = ex_hi.shape[0]
+    out_hi = np.zeros(A_hi.shape[1:], dtype=np.float64)
+    out_lo = np.zeros_like(out_hi)
+
+    for a in range(Na):
+        term = dd_mul((ex_hi[a], ex_lo[a]), (A_hi[a], A_lo[a]))
+        out_hi, out_lo = dd_add((out_hi, out_lo), term)
+
+    return (out_hi, out_lo)
+
+def dd_kron(A, B):
+    """
+    Kronecker product in DD.
+    A, B are DD tuples.
+    Returns DD tuple.
+    """
+    A_hi, A_lo = A
+    B_hi, B_lo = B
+
+    K_hi = np.kron(A_hi, B_hi)
+
+    # full expansion of (hi+lo)⊗(hi+lo) - hi⊗hi
+    K_lo = (np.kron(A_hi, B_lo) +
+            np.kron(A_lo, B_hi) +
+            np.kron(A_lo, B_lo))
+
+    return renorm(K_hi, K_lo)
+
+def dd_add_inplace(X, Y):
+    # X and Y are DD tuples; returns new tuple (don’t mutate views)
+    return dd_add(X, Y)
+
+def dd_scale(x, s):
+    # x is DD, s float64 scalar
+    return dd_mul_exact_scalar(x, float(s))
+
+
 
 # ---------- “upgrade only where needed” helpers ----------
 
