@@ -458,7 +458,6 @@ def assemble_HS_multi_alpha(SH_layers, alphas, betas, Rms, coords, H=None, S=Non
                 f"sum={t['sum_val']:.6e}  abs_sum={t['abs_sum']:.6e}"
             )
 
-
         t = topH[0]
         bi, bj, ri, cj = t["beta_rc"]
         acc = 0.

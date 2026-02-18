@@ -77,7 +77,9 @@ def gen_residual_norm(H,S,E,c):
 
 def sensitivity_test(H,S,eps=1e-14, trials=20, seed=0):
     rng = np.random.default_rng(seed)
-    e, c = eig(H, S)
+    X, keep, w = reduce_by_overlap(S, 1e-16)
+    Hp = X.T @ H @ X
+    e, Y = eig(Hp)
     e0 = np.min(np.real(e))
     shifts = []
     for _ in range(trials):
@@ -86,9 +88,13 @@ def sensitivity_test(H,S,eps=1e-14, trials=20, seed=0):
         dH = rng.standard_normal(H.shape)
         Hp = H + eps*np.linalg.norm(H)*dH/np.linalg.norm(dH)
         Sp = S + eps*np.linalg.norm(S)*dS/np.linalg.norm(dS)
-        e, c = eig(Hp, Sp)
+
+        X, keep, w = reduce_by_overlap(Sp, 1e-16)
+        Hp = X.T @ Hp @ X
+        e, Y = eig(Hp)
         ep = np.min(np.real(e))
         shifts.append(ep - e0)
+        print(ep, e0, np.std(shifts), np.max(np.abs(shifts)))
     return e0, np.std(shifts), np.max(np.abs(shifts))
 
 def cond(S):
@@ -115,8 +121,8 @@ def solve_HS(H, S, rcond = 1e-15):   # alpha = 0.98
     E, Y = eig(Hp)
     C = q[:, None] * (X @ Y)
 
-    print(f"intensity test: {[float(C[ic, 0]/np.linalg.norm(C[:, 0])) for ic in [2200, 1581, 2053, 2219, 1942, 1640]]}")
-    print(f"intensity test: {[float(C[ic, 0]/np.linalg.norm(C[:, 0])) for ic in [2001, 2002, 2003, 2004, 2005]]}")
+    # print(f"intensity test: {[float(C[ic, 0]/np.linalg.norm(C[:, 0])) for ic in [2200, 1581, 2053, 2219, 1942, 1640]]}")
+    # print(f"intensity test: {[float(C[ic, 0]/np.linalg.norm(C[:, 0])) for ic in [2001, 2002, 2003, 2004, 2005]]}")
 
     # print(sensitivity_test(H, S))
     # print(gen_residual_norm(H,S,E[0],C[:, 0]))
