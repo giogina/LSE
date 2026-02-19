@@ -320,6 +320,109 @@ def dd_kron(A, B):
 
     return renorm(K_hi, K_lo)
 
+
+import numpy as np
+
+def dd_kron_reduced(R_dd, A_dd, c=0.5):
+    """
+    Build reduced K_dd for basis:
+        [ spec ] + [ all (rhl>=2) ⊗ (all ad) ]
+
+    where:
+        spec = (rhl0 ⊗ ad0) + c * (rhl1 ⊗ ad1)
+        rhl0 index 0 (h=0,l=0)
+        rhl1 index 1 (h=1,l=0)
+        ad0 = 0, ad1 = 1
+
+    R_dd: DD tuple (R_hi, R_lo) shape (nrhl,nrhl)
+    A_dd: DD tuple (A_hi, A_lo) shape (NK,NK)
+
+    Returns: DD tuple (K_hi, K_lo) shape (1 + (nrhl-2)*NK, 1 + (nrhl-2)*NK)
+    """
+    R_hi, R_lo = R_dd
+    A_hi, A_lo = A_dd
+
+    nrhl = int(R_hi.shape[0])
+    NK = int(A_hi.shape[0])
+    n2 = nrhl - 2
+    Nred = 1 + n2 * NK
+
+    out_hi = np.zeros((Nred, Nred), dtype=np.float64)
+    out_lo = np.zeros_like(out_hi)
+
+    # --- (1) big block: rhl>=2 vs rhl>=2 ---
+    if n2 > 0:
+        R22 = (R_hi[2:, 2:], R_lo[2:, 2:])
+        K22_hi, K22_lo = dd_kron(R22, A_dd)  # uses your fast vectorized kron
+        out_hi[1:, 1:] = K22_hi
+        out_lo[1:, 1:] = K22_lo
+
+    # Convenience: A rows/cols for ad0/ad1 (as float64 vectors)
+    a0_row_hi, a0_row_lo = A_hi[0, :], A_lo[0, :]
+    a1_row_hi, a1_row_lo = A_hi[1, :], A_lo[1, :]
+    a0_col_hi, a0_col_lo = A_hi[:, 0], A_lo[:, 0]
+    a1_col_hi, a1_col_lo = A_hi[:, 1], A_lo[:, 1]
+
+    # --- (2) special-special corner (scalar) ---
+    # Kss = R00*A00 + c*R01*A01 + c*R10*A10 + c^2*R11*A11  (DD accurate scalar mult)
+    # Use dd_mul_exact_scalar on 1x1 DD pieces (fast enough).
+    A00 = (A_hi[0:1, 0:1], A_lo[0:1, 0:1])
+    A01 = (A_hi[0:1, 1:1+1], A_lo[0:1, 1:1+1])
+    A10 = (A_hi[1:1+1, 0:1], A_lo[1:1+1, 0:1])
+    A11 = (A_hi[1:1+1, 1:1+1], A_lo[1:1+1, 1:1+1])
+
+    Kss = dd_mul_exact_scalar(A00, float(R_hi[0, 0]))
+    Kss = dd_add(Kss, dd_mul_exact_scalar(A01, float(c * R_hi[0, 1])))
+    Kss = dd_add(Kss, dd_mul_exact_scalar(A10, float(c * R_hi[1, 0])))
+    Kss = dd_add(Kss, dd_mul_exact_scalar(A11, float((c * c) * R_hi[1, 1])))
+
+    out_hi[0, 0] = Kss[0][0, 0]
+    out_lo[0, 0] = Kss[1][0, 0]
+
+    if n2 == 0:
+        return renorm(out_hi, out_lo)
+
+    # --- helper: DD multiply (n2,NK) outer products fast using two_prod ---
+    def dd_outer_scalar_vec(rvec, a_hi, a_lo):
+        """
+        rvec: (n2,) float64
+        a_hi/a_lo: (NK,) float64
+        returns (hi,lo) shape (n2,NK) for rvec[:,None] * (a_hi+a_lo)[None,:]
+        """
+        # hi product + rounding error
+        hi, err = two_prod(rvec[:, None], a_hi[None, :])  # (n2,NK)
+        lo = err + rvec[:, None] * a_lo[None, :]
+        return hi, lo
+
+    # --- (3) special row vs big block: length n2*NK ---
+    r0 = R_hi[0, 2:]  # (n2,)
+    r1 = R_hi[1, 2:]  # (n2,)
+
+    top0_hi, top0_lo = dd_outer_scalar_vec(r0, a0_row_hi, a0_row_lo)
+    top1_hi, top1_lo = dd_outer_scalar_vec(r1, a1_row_hi, a1_row_lo)
+
+    top_hi = top0_hi + c * top1_hi
+    top_lo = top0_lo + c * top1_lo
+
+    out_hi[0, 1:] = top_hi.reshape(-1)
+    out_lo[0, 1:] = top_lo.reshape(-1)
+
+    # --- (4) big block vs special column: length n2*NK ---
+    c0v = R_hi[2:, 0]  # (n2,)
+    c1v = R_hi[2:, 1]  # (n2,)
+
+    left0_hi, left0_lo = dd_outer_scalar_vec(c0v, a0_col_hi, a0_col_lo)
+    left1_hi, left1_lo = dd_outer_scalar_vec(c1v, a1_col_hi, a1_col_lo)
+
+    left_hi = left0_hi + c * left1_hi
+    left_lo = left0_lo + c * left1_lo
+
+    out_hi[1:, 0] = left_hi.reshape(-1)
+    out_lo[1:, 0] = left_lo.reshape(-1)
+
+    return renorm(out_hi, out_lo)
+
+
 def dd_add_inplace(X, Y):
     # X and Y are DD tuples; returns new tuple (don’t mutate views)
     return dd_add(X, Y)
