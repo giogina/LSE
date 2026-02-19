@@ -139,10 +139,6 @@ def print_solution_maple(
     maxabs = float(np.max(np.abs(C))) if C.size else 0.0
     thresh = drop_rel * max(1.0, maxabs)
 
-    # Maple header
-    qs = "(sqrt(2+2*a)+sqrt(2-2*a))/2"
-    pref = f"exp(-({_to_maple_coeff(alpha, coeff_sig)})*r*{qs})"
-
     # Build sum terms
     terms = []
     # Iterate in the exact order implied by C reshape
@@ -185,12 +181,12 @@ def print_solution_maple(
                 line += add
         if line:
             chunks.append(line)
-        body = ("\n    " + "\n  + ".join(chunks)) if len(chunks) > 1 else chunks[0]
+        body = ("\n  + ".join(chunks)) if len(chunks) > 1 else chunks[0]
 
     print(f"\n# Maple syntax ({name})")
-    print(f"{name} := (a,d,r) -> {pref} * (")
+    print(f"{name} := exp(-{alpha}*r*(sqrt(2+2*a)+sqrt(2-2*a))/2) * (")
     print(f"  {body}")
-    print(");")
+    print("):")
 
 def _qs_of_a(a):
     """Float64 version of qs = sqrt(2+2a) + sqrt(2-2a), for a in [0,1]."""
@@ -402,5 +398,5 @@ def ratplot(
 
 
 if __name__ == "__main__":
-    # plot_from_psi_ad_bundle_pickle("he_solution_he_p8_s100.pkl", a_points=40, d_points=40)
-    plot_from_psi_ad_bundle_pickle("he_solution_he_p10_r80_a80_gamma4.pkl", a_points=40, d_points=40)
+    plot_from_psi_ad_bundle_pickle("he_solution_he_p8_s100.pkl", a_points=40, d_points=40)
+    # plot_from_psi_ad_bundle_pickle("he_solution_he_p10_r80_a80_gamma4.pkl", a_points=40, d_points=40)
