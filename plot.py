@@ -53,8 +53,8 @@ def eval_psi_eloc_on_points(
     M_inv     = meta["M_inv"]
     Fij       = meta["Fij"]
     Fji       = meta["Fji"]
-    Fij_smol  = meta["Fij_smol"]
-    Fji_smol  = meta["Fji_smol"]
+    Fij_smol  = meta.get("Fij_smol")
+    Fji_smol  = meta.get("Fji_smol")
     Xmeta     = meta["X"]
 
     # electron 2 fixed (lab coords), but distances depend on rAB
@@ -160,6 +160,222 @@ def eval_psi_eloc_on_points(
     RAB_grid, X1_grid = np.meshgrid(rAB_vals, x1_vals, indexing="ij")  # (nr,nx)
     return RAB_grid, X1_grid, psi_grid, eloc_grid
 
+def _maple_float(x, digits=10):
+    """
+    Maple-safe float string.
+    Uses mantissa*10^(exp), avoiding Python's e notation if you prefer
+    strict Maple-ish readability.
+    """
+    x = float(x)
+    if x == 0.0:
+        return "0.0"
+
+    s = f"{x:.{digits}e}"
+    mant, exp = s.split("e")
+    exp = int(exp)
+
+    # Clean ugly + signs / leading zeros
+    if exp == 0:
+        return mant
+    return f"{mant}*10^({exp})"
+
+
+def _maple_power(var, p):
+    p = int(p)
+
+    if p == 0:
+        return None, None
+
+    if p == 1:
+        return var, None
+
+    if p == -1:
+        return None, var
+
+    if p > 1:
+        return f"{var}^{p}", None
+
+    # p < -1
+    return None, f"{var}^{abs(p)}"
+
+
+def _maple_monomial(powers, var_names):
+    numer = []
+    denom = []
+
+    for var, p in zip(var_names, powers):
+        nfac, dfac = _maple_power(var, p)
+        if nfac is not None:
+            numer.append(nfac)
+        if dfac is not None:
+            denom.append(dfac)
+
+    if numer:
+        out = "*".join(numer)
+    else:
+        out = "1"
+
+    for dfac in denom:
+        out += f"/{dfac}"
+
+    return out
+
+
+def print_psi_maple16(
+    c_full,
+    frankenBasis,
+    meta,
+    *,
+    var_names=None,
+    coeff_cutoff=0.0,
+    normalize=None,
+    assign_name="Psi",
+    line_width=None,
+    is_BO=False,
+):
+    """
+    Print the full plotted wave function in Maple 16 syntax.
+
+    Parameters
+    ----------
+    c_full:
+        Full solution coefficient vector, e.g. C[:, i_real].
+
+    frankenBasis:
+        The assembled multi-alpha basis object.
+
+    meta:
+        The metadata dict containing meta["basis_idx"] and meta["coords"].
+
+    var_names:
+        Names matching columns of basis_idx.
+        Default assumes:
+            [rAB, rA1, rB1, rA2, rB2, r12]
+        Change this if your actual basis_idx columns differ.
+
+    coeff_cutoff:
+        Skip coefficients with abs(c) <= coeff_cutoff.
+
+    normalize:
+        None       -> print raw coefficients.
+        "first"    -> divide all coefficients by first nonzero coefficient.
+        "maxabs"   -> divide all coefficients by max(abs(c_full)).
+
+    assign_name:
+        Maple variable name, e.g. "Psi".
+
+    line_width:
+        If None, prints one huge Maple assignment.
+        If an int, inserts line breaks between block terms.
+    """
+    import numpy as np
+
+    basis_idx = np.asarray(meta["basis_idx"])
+    coords = meta["coords"]
+
+    N = frankenBasis.N
+    nblocks = len(frankenBasis.blocks)
+
+    if c_full.shape[0] != nblocks * N:
+        raise ValueError(
+            f"c_full has length {c_full.shape[0]}, expected {nblocks * N} "
+            f"= {nblocks} blocks * {N} basis functions."
+        )
+
+    nvars = basis_idx.shape[1]
+
+    if var_names is None:
+        default_names = ["rAB", "rA1", "rB1", "rA2", "rB2", "r12"]
+        if nvars <= len(default_names):
+            var_names = default_names[:nvars]
+        else:
+            var_names = default_names + [f"q{i}" for i in range(len(default_names), nvars)]
+
+    if len(var_names) != nvars:
+        raise ValueError(
+            f"Need {nvars} variable names for basis_idx columns, got {len(var_names)}."
+        )
+
+    c_print = np.array(c_full, dtype=float).copy()
+
+    if normalize == "first":
+        nz = np.where(np.abs(c_print) > 0.0)[0]
+        if nz.size:
+            c_print /= c_print[nz[0]]
+    elif normalize == "maxabs":
+        m = np.max(np.abs(c_print))
+        if m > 0:
+            c_print /= m
+    elif normalize is not None:
+        raise ValueError("normalize must be None, 'first', or 'maxabs'.")
+
+    block_terms = []
+
+    for k, blk, sl in frankenBasis.iter_blocks():
+        alpha_k = float(blk["alpha"])
+        beta_k = float(blk["beta"])
+        Rm_k = blk.get("Rm", None)
+
+        ck = c_print[sl]
+        poly_terms = []
+
+        for local_i, cc in enumerate(ck):
+            cc = float(cc)
+            if abs(cc) <= coeff_cutoff:
+                continue
+
+            powers = basis_idx[local_i, :]
+            monomial = _maple_monomial(powers, var_names)
+            coeff = _maple_float(cc)
+
+            if monomial == "1":
+                poly_terms.append(f"({coeff})")
+            else:
+                poly_terms.append(f"({coeff})*{monomial}")
+
+        if not poly_terms:
+            continue
+
+        poly = "(" + " + ".join(poly_terms) + ")"
+
+        alpha_s = _maple_float(alpha_k)
+        beta_s = _maple_float(beta_k)
+
+        if is_BO:
+            expfac = f"exp(-({alpha_s})*(s1+s2))"
+
+        else:
+            if coords.endswith("_morse"):
+                if Rm_k is None:
+                    raise ValueError("coords ends with '_morse', but block has no Rm.")
+
+                Rm_s = _maple_float(float(Rm_k))
+
+                expfac = (
+                    f"exp(-({alpha_s})*(s1+s2)"
+                    f"-({beta_s})*(({Rm_s})-rAB)^2)"
+                )
+            else:
+                expfac = (
+                    f"exp(-({alpha_s})*(s1+s2)"
+                    f"-({beta_s})*rAB)"
+                )
+
+        block_terms.append(f"{poly}*{expfac}")
+
+    if not block_terms:
+        expr = "0"
+    else:
+        sep = "\n+ " if line_width is not None else " + "
+        expr = sep.join(block_terms)
+
+    maple = f"{assign_name} := {expr}:"
+
+    print("\n# ---------- Maple 16 wave function ----------")
+    print(maple)
+    print("# --------------------------------------------\n")
+
+    return maple
 
 def plot_Psi_Eloc_multi_params_from_files(
     file,
@@ -376,8 +592,8 @@ def plot_Psi_Eloc_multi_params_from_files(
         M_inv = meta["M_inv"]
         Fij = meta["Fij"]
         Fji = meta["Fji"]
-        Fij_smol = meta["Fij_smol"]
-        Fji_smol = meta["Fji_smol"]
+        Fij_smol = meta.get("Fij_smol")
+        Fji_smol = meta.get("Fji_smol")
         X = meta["X"]
 
         B, A1, Aa, Ab, Aa2, Aab, c_beta2, _P = calc_AB(
@@ -525,6 +741,18 @@ def plot_Psi_Eloc_multi_params_from_files(
 
         i_real = 0
         c_full = C[:, i_real]
+
+        print_psi_maple16(
+            c_full,
+            frankenBasis,
+            meta,
+            var_names=["rAB", "r12", "s1", "s2", "mu1", "mu2"],
+            coeff_cutoff=1e-12,
+            normalize="first",
+            assign_name="Psi",
+            line_width=120,
+            is_BO=True
+        )
 
         geom = get_cached_geom(s_x2.val, s_y2.val, s_z2.val)
 
@@ -1012,6 +1240,7 @@ def plot_nonBO_from_files(
         # print("("+'+'.join([f"({float(cc / c[0])}) * rAB^{basis_idx[i][0]} " for i, cc in enumerate(c) if (basis_idx[i][1]==0 and basis_idx[i][2]==0 and basis_idx[i][3]==0 and basis_idx[i][4]==0 and basis_idx[i][5]==0)])+f")*exp(-{beta}*(rAB-1.4011)^2)")
         # print("("+'+'.join([f"({float(cc / c[0])}) * rAB^{basis_idx[i][0]} " for i, cc in enumerate(c) if (basis_idx[i][1]==1 and basis_idx[i][2]==0 and basis_idx[i][3]==0 and basis_idx[i][4]==0 and basis_idx[i][5]==0)])+f")*exp(-{beta}*(rAB-1.4011)^2)")
         # print("("+'+'.join([f"({float(cc / c[0])}) * rAB^{basis_idx[i][0]} " for i, cc in enumerate(c) if (basis_idx[i][1]==0 and basis_idx[i][2]==1 and basis_idx[i][3]==0 and basis_idx[i][4]==0 and basis_idx[i][5]==0)])+f")*exp(-{beta}*(rAB-1.4011)^2)")
+        # print("("+'+'.join([f"({float(cc / c[0])}) * rAB^{basis_idx[i][0]} " for i, cc in enumerate(c) if (basis_idx[i][1]==0 and basis_idx[i][2]==0 and basis_idx[i][3]==0 and basis_idx[i][4]==1 and basis_idx[i][5]==1)])+f")*exp(-{beta}*(rAB-1.4011)^2)")
         # print("("+'+'.join([f"({float(cc / c[0])}) * rAB^{basis_idx[i][0]} " for i, cc in enumerate(c) if (basis_idx[i][1]==0 and basis_idx[i][2]==0 and basis_idx[i][3]==0 and basis_idx[i][4]==1 and basis_idx[i][5]==1)])+f")*exp(-{beta}*(rAB-1.4011)^2)")
 
         geom = get_cached_geom(s_x2.val, s_y2.val, s_z2.val)

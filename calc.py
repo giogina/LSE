@@ -8,9 +8,11 @@ def potential_ri(rAB, rA1, rB1, rA2, rB2, r12):
 
 def potential_ri_inv(rAB_inv, rA1_inv, rB1_inv, rA2_inv, rB2_inv, r12_inv):  # For cases when the inv's are pre-computed
     return rAB_inv + r12_inv - rA1_inv - rB1_inv - rA2_inv - rB2_inv
+    # return rAB_inv - rA1_inv - rB1_inv - rA2_inv - rB2_inv
 
 def potential_ri_inv_dd(rAB_inv, rA1_inv, rB1_inv, rA2_inv, rB2_inv, r12_inv):  # For cases when the inv's are pre-computed
     return dd_subs(dd_add(rAB_inv, r12_inv), dd_add(dd_add(rA1_inv, rB1_inv), dd_add(rA2_inv, rB2_inv)))
+    # return dd_subs(rAB_inv, dd_add(dd_add(rA1_inv, rB1_inv), dd_add(rA2_inv, rB2_inv)))
 
 def intramolecular_potential_fully_synced(x1, y1, x2, y2, z2, rAB, R):
     # Molecule I: e1, e2 at given Cartesian coordinates, nuclei at (+/- rAB/2, 0, 0)

@@ -76,7 +76,8 @@ def build_basis_idx(coords, h_max, k_max, nm_min, n_max, m_max, ij_max, total_ma
                                 #         rows.append((h+i+j, k, n, m, i, j, d))
                                 #         d += 1
                                 # else:
-                                rows.append((h+i+j, k, n, m, i, j))
+                                # rows.append((h+i+j, k, n, m, i, j))  # TODO: Probably useful in non-BO case; re-test. Below for BO; so that rAB power stays 0.
+                                rows.append((h, k, n, m, i, j))
 
 
     elif coords == "s12uv_morse":

@@ -1,8 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from matplotlib import pyplot
 from matplotlib.widgets import Slider
 import pickle
 from pathlib import Path
+import matplotlib.cm as cm
+import matplotlib.colors as mcolors
 
 
 def save_psi_ad_bundle_pickle(
@@ -231,6 +234,247 @@ def _format_poly(var: str, coeffs, powers, *, max_terms=12, sig=6):
 
     return " + ".join(parts)
 
+def plot_psi_ar_at_d1(
+    *,
+    C_hlnk,          # (Nrhl, Nu, Kd)
+    h_list, l_list,  # (Nrhl,), (Nrhl,)
+    n_max: int,
+    k_max: int,
+    alpha: float,
+    r_min: float,
+    r_max: float,
+    a_points: int = 241,
+    r_points: int = 140,
+    eps_r: float = 1e-12,
+    use_abs: bool = False,
+):
+    """
+    3D plot of psi at fixed d=1: surface over (a, r).
+
+    At d=1: polynomial in d collapses to sum_k coeff[n,k] (since 1^k = 1).
+    Psi(a,r) = exp(-alpha*r*qs(a)) * sum_n a^(2n) * sum_k coeff_nk(r)[n,k].
+    """
+    Nu = n_max + 1
+    Kd = k_max + 1
+
+    # grids
+    a_grid = np.linspace(-1.0, 1.0, a_points, dtype=np.float64)
+    r_grid = np.linspace(r_min, r_max, r_points, dtype=np.float64)
+
+    # a^(2n) table: (a_points, Nu)
+    A2N = np.empty((a_points, Nu), dtype=np.float64)
+    A2N[:, 0] = 1.0
+    a2 = a_grid * a_grid
+    for n in range(1, Nu):
+        A2N[:, n] = A2N[:, n - 1] * a2
+
+    # qs(a): (a_points,)
+    QS = _qs_of_a(a_grid).astype(np.float64)
+
+    # output surface
+    A = np.repeat(a_grid[None, :], r_points, axis=0)     # (r_points, a_points)
+    R = np.repeat(r_grid[:, None], a_points, axis=1)     # (r_points, a_points)
+    Z = np.empty((r_points, a_points), dtype=np.float64)
+
+    for i, rv in enumerate(r_grid):
+        r_eff = max(float(rv), eps_r)
+        log_r = np.log(r_eff)
+
+        # r^h * log(r)^l across hl
+        RHL = (r_eff ** h_list) * (log_r ** l_list)                  # (Nrhl,)
+
+        # coeff_nk(r) = sum_hl RHL[hl] * C_hlnk[hl,n,k]
+        coeff_nk = np.tensordot(RHL, C_hlnk, axes=(0, 0))            # (Nu, Kd)
+
+        # d=1 -> sum over k
+        coeff_n = coeff_nk.sum(axis=1)                               # (Nu,)
+
+        # combine n with a^(2n)
+        psi_a = A2N @ coeff_n                                        # (a_points,)
+
+        # exponential prefactor depends on a
+        # psi_a *= np.exp(-alpha * r_eff * QS) # todo: exp test
+
+        if use_abs:
+            psi_a = np.abs(psi_a)
+
+        Z[i, :] = psi_a
+
+    # plot
+    fig4 = plt.figure(figsize=(10, 7), constrained_layout=True)
+    ax4 = fig4.add_subplot(111, projection="3d")
+    ax4.plot_surface(A, R, Z, rstride=1, cstride=1, linewidth=0, antialiased=True)
+
+    ax4.set_xlabel("a")
+    ax4.set_ylabel("r")
+    ax4.set_zlabel("|psi|" if use_abs else "psi")
+    ax4.set_title("ψ(a,r) at fixed d=1")
+    ax4.set_proj_type("ortho")
+    ax4.view_init(elev=0, azim=90)
+
+    return fig4, ax4
+
+def plot_psi_rd_at_a0(
+    *,
+    C_hlnk,          # (Nrhl, Nu, Kd)
+    h_list, l_list,  # (Nrhl,), (Nrhl,)
+    n_max: int,
+    k_max: int,
+    alpha: float,
+    r_min: float = 0.0,
+    r_max: float = 10.0,
+    r_points: int = 120,
+    d_points: int = 120,
+    eps_r: float = 1e-12,
+    use_abs: bool = False,
+):
+    """
+    3D plot of psi at fixed a=0: surface over (r, d).
+
+    At a=0: a^(2n) is 1 for n=0 and 0 for n>0 -> only n=0 contributes.
+    """
+    Nu = n_max + 1
+    Kd = k_max + 1
+
+    # d-range for a=0 using same bounds function as ratplot()
+    a0 = 0.0
+    s = np.sqrt(1 - a0**2)              # =1
+    dmin = np.sqrt(1 + s)
+    dmax = np.sqrt(1 - s)
+    d_grid = np.linspace(dmin, dmax, d_points, dtype=np.float64)
+
+    # r grid
+    r_grid = np.linspace(r_min, r_max, r_points, dtype=np.float64)
+
+    # qs(a) for a=0 (shape (1,) -> scalar)
+    qs0 = float(_qs_of_a(np.array([a0], dtype=np.float64))[0])
+
+    # Precompute d powers table: (Kd, d_points)
+    d_pows = np.ones((Kd, d_points), dtype=np.float64)
+    for kk in range(1, Kd):
+        d_pows[kk, :] = d_pows[kk - 1, :] * d_grid
+
+    # Build surface arrays
+    R = np.repeat(r_grid[:, None], d_points, axis=1)   # (r_points, d_points)
+    D = np.repeat(d_grid[None, :], r_points, axis=0)   # (r_points, d_points)
+    Z = np.empty_like(R, dtype=np.float64)
+
+    for i, rv in enumerate(r_grid):
+        r_eff = max(float(rv), eps_r)
+        log_r = np.log(r_eff)
+
+        # r^h * log(r)^l across hl
+        RHL = (r_eff ** h_list) * (log_r ** l_list)                  # (Nrhl,)
+
+        # coeff_nk = sum_hl RHL[hl] * C_hlnk[hl,n,k]
+        coeff_nk = np.tensordot(RHL, C_hlnk, axes=(0, 0))            # (Nu, Kd)
+
+        # a=0 -> only n=0 survives
+        coeff_k = coeff_nk[0, :]                                     # (Kd,)
+
+        # polynomial in d
+        psi_poly = coeff_k @ d_pows                                  # (d_points,)
+
+        # exponential prefactor
+        # psi_row = np.exp(-alpha * r_eff * qs0) * psi_poly            # (d_points,)
+        psi_row = psi_poly            # todo: (d_points,) # no-exp test
+        if use_abs:
+            psi_row = np.abs(psi_row)
+
+        Z[i, :] = psi_row
+
+    # Plot
+    fig3 = plt.figure(figsize=(10, 7), constrained_layout=True)
+    ax3 = fig3.add_subplot(111, projection="3d")
+    ax3.plot_surface(R, D, Z, rstride=1, cstride=1, linewidth=0, antialiased=True)
+
+    ax3.set_xlabel("r")
+    ax3.set_ylabel("d")
+    ax3.set_zlabel("|psi|" if use_abs else "psi")
+    ax3.set_title("ψ(r,d) at fixed a=0")
+    ax3.set_proj_type("ortho")
+    ax3.view_init(elev=0, azim=90)
+
+    return fig3, ax3
+
+def plot_r_power_components_at_r1(
+    *,
+    C_hlnk,          # (Nrhl, Nu, Kd)
+    h_list, l_list,  # (Nrhl,), (Nrhl,)
+    A, D,            # (a_points, d_points) surfaces
+    A2N,             # (a_points, Nu)
+    QS,              # (a_points,)
+    alpha: float,
+    h_max: int,
+    use_abs: bool = False,
+    r0: float = 1.0,
+    wire_stride: int = 2,
+):
+    """
+    Plot the contribution of each r^h (at r=r0) in a single 3D plot.
+
+    With r0=1: ln(r0)=0, so only l=0 contributes; and r0^h=1.
+    Therefore the 'coeff(psi, r, h)' surface is built from the (h, l=0) block only.
+    """
+    a_points, d_points = A.shape
+
+    # common exponential factor at r=r0
+    expo = np.exp(-alpha * float(r0) * QS)[:, None]  # (a_points, 1)
+
+    fig2 = plt.figure(figsize=(10, 7))
+    ax2 = fig2.add_subplot(111, projection="3d")
+    ax2.set_xlabel("a")
+    ax2.set_ylabel("d")
+    ax2.set_zlabel("|psi_h|" if use_abs else "psi_h")
+    ax2.set_title(f"ψ_h(a,d) pieces for each r^h at r={r0:g} (ln(r)=0 ⇒ l=0 only)")
+    ax2.set_proj_type('ortho')
+    ax2.view_init(elev=0, azim=90)
+    fig2.subplots_adjust(left=0.02, right=0.98, bottom=0.02, top=0.95)
+
+    cmap = pyplot.get_cmap("viridis", h_max + 1)
+    norm = mcolors.Normalize(vmin=0, vmax=h_max)
+
+    # For each h, find the unique hl index where (h_list==h and l_list==0)
+    for h in range(h_max + 1):
+        mask = (h_list == h) & (l_list == 0)
+        idxs = np.where(mask)[0]
+        if idxs.size != 1:
+            # If something odd happens in ordering, just skip safely
+            continue
+        hl0 = int(idxs[0])
+
+        coeff_nk = C_hlnk[hl0, :, :]                      # (Nu, Kd)
+        coeff_k_by_a = A2N @ coeff_nk                     # (a_points, Kd)
+
+        # Evaluate polynomial in d on the surface grid
+        psi_poly = np.zeros((a_points, d_points), dtype=np.float64)
+        Dpow = np.ones((a_points, d_points), dtype=np.float64)
+        for kk in range(coeff_nk.shape[1]):
+            psi_poly += coeff_k_by_a[:, kk][:, None] * Dpow
+            Dpow *= D
+
+        Z = expo * psi_poly
+        # Z = psi_poly
+        if use_abs:
+            Z = np.abs(Z)
+
+        ax2.plot_wireframe(
+            A, D, Z,
+            rstride=wire_stride,
+            cstride=wire_stride,
+            linewidth=0.9,
+            color=cmap(norm(h)),
+            label=f"h={h}",
+        )
+
+    # 3D legends are finicky but usually work OK for wireframes
+    try:
+        ax2.legend(loc="upper left")
+    except Exception:
+        pass
+
+    return fig2, ax2
+
 
 def ratplot(
     C,
@@ -287,7 +531,7 @@ def ratplot(
     C_hlnk = C.reshape(Nrhl, Nu, Kd)
 
     # a grid (plot grid, not quadrature)
-    a_grid = np.linspace(-0.95, 0.95, a_points, dtype=np.float64)
+    a_grid = np.linspace(-0.99, 0.99, a_points, dtype=np.float64)
 
     def d_bounds_from_a(a):
         s = np.sqrt(1-a**2)  # s = sqrt(1 - a^2)
@@ -343,8 +587,9 @@ def ratplot(
             psi_poly += coeff_k_by_a[:, kk][:, None] * Dpow
             Dpow *= D
 
-        expo = np.exp(-alpha * r_eff * QS)[:, None]
-        psi = expo * psi_poly
+        # expo = np.exp(-alpha * r_eff * QS)[:, None]
+        # psi = expo * psi_poly # todo: test
+        psi = psi_poly
         if use_abs:
             psi = np.abs(psi)
 
@@ -392,11 +637,60 @@ def ratplot(
         fig.canvas.draw_idle()
 
     r_slider.on_changed(_update)
+
+
+    # --- ADD inside ratplot(), after QS / C_hlnk exist ---
+    fig2, ax2 = plot_r_power_components_at_r1(
+        C_hlnk=C_hlnk,
+        h_list=h_list,
+        l_list=l_list,
+        A=A,
+        D=D,
+        A2N=A2N,
+        QS=QS,
+        alpha=alpha,
+        h_max=h_max,
+        use_abs=use_abs,
+        r0=1.0,
+        wire_stride=2,
+    )
+
+    fig3, ax3 = plot_psi_rd_at_a0(
+        C_hlnk=C_hlnk,
+        h_list=h_list,
+        l_list=l_list,
+        n_max=n_max,
+        k_max=k_max,
+        alpha=alpha,
+        r_min=0.0,
+        r_max=2.0,
+        r_points=60,
+        d_points=d_points,
+        eps_r=eps_r,
+        use_abs=use_abs,
+    )
+
+    fig4, ax4 = plot_psi_ar_at_d1(
+        C_hlnk=C_hlnk,
+        h_list=h_list,
+        l_list=l_list,
+        n_max=n_max,
+        k_max=k_max,
+        alpha=alpha,
+        r_min=0.0,
+        r_max=2.0,
+        a_points=40,
+        r_points=40,
+        eps_r=eps_r,
+        use_abs=use_abs,
+    )
+
     plt.show()
 
     return fig, ax, r_slider
 
 
 if __name__ == "__main__":
-    plot_from_psi_ad_bundle_pickle("he_solution_he_p8_s100.pkl", a_points=40, d_points=40)
+    # plot_from_psi_ad_bundle_pickle("he_solution_he_p8_s100.pkl", a_points=40, d_points=40)
     # plot_from_psi_ad_bundle_pickle("he_solution_he_p10_r80_a80_gamma4.pkl", a_points=40, d_points=40)
+    plot_from_psi_ad_bundle_pickle("he_solution_he_p10_r100_a100_h3_k3_n3_gamma4.pkl", a_points=40, d_points=40)

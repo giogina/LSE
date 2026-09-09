@@ -1,6 +1,9 @@
 import numpy as np
 from numpy.polynomial.legendre import leggauss
 
+# TODO: sinc numerical methods
+# TODO: manual exact calculation of leggauss nodes
+
 def frange(start, stop, step):
     x = start
     if step > 0:

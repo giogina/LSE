@@ -8,7 +8,7 @@ from plot import plot_nonBO_from_files, plot_Psi_Eloc_multi_params_from_files
 
 # file = "SHlayers_t8_n-i_m-j_delta0_BO.pkl" # pretty good!
 # file = "SHlayers_t8_nm-khalf_delta0_BO_363.pkl"
-file = "SHlayers_t8_delta0.0_BO_many-low-k_810.pkl" # better ee cusp than high-k with t = k+...
+# file = "SHlayers_t8_delta0.0_BO_many-low-k_810.pkl" # better ee cusp than high-k with t = k+...
 # file = "SHlayers_10.pkl"
 # file = "SHlayers_t9_delta0.0_BO_many-low-k_1140.pkl"
 # file = "SHlayers_t6_delta0.1_BO_many-low-k-nonneg-nm-COUPLED-DIMER-R12.0_360.pkl" # worse ee, better ne as above
@@ -108,21 +108,35 @@ plotrAB = 1.4
 # file = "SHlayers_t5_delta0.0_BO_no-matmul-dd_342_all.pkl"  # s=20
 # file = "SHlayers_t6_delta0.0_BO_no-matmul-dd_486_all.pkl"
 # file = "SHlayers_t7_delta0.0_BO_no-matmul-dd_756_all.pkl"
-# file = "SHlayers_t7_delta0.0_BO_sMax30_756_all.pkl"
+file = "SHlayers_t7_delta0.0_BO_sMax30_756_all.pkl"
+
+# file = "SHlayers_t6_delta0.0_multialpha-new_rAB_clustering_775_all.pkl"
+# file = "SHlayers_t6_delta0.0_BO_rAB3.5_420_all.pkl"
+# file = "SHlayers_t6_delta0.0_BO_rAB7_420_all.pkl"
+# file = "SHlayers_t8_delta0.0_BO_rAB4_905_all.pkl"  # E = -1.0163902595696197
+# file = "SHlayers_t8_delta0.0_BO_rAB4-psinonr12_181_all.pkl"  # Psi is r12-independent; V is normal: E = -1.014473775868411
+# file = "SHlayers_t8_delta0.0_BO_rAB4-Vnonr12_543_all.pkl"  # Psi=Psi(r12), but V is r12-independent: E = -1.3421697872330607
+# file = "SHlayers_t8_delta0.0_BO_rAB4-allnonr12_181_all.pkl" # Psi and V r12-independent: E = -1.3421697344332832
+
+# file = "SHlayers_t8_delta0.0_BO_rAB7-psinonr12_181_all.pkl"  #  Psi r12-independent; E = -1.0001032352646306
+
+file = "SHlayers_t8_delta0.0_BO_rAB7_905_all.pkl" # E = -1.000197839221467
 
 # todo: alpha=0.1 seems to be numerically unstable (especially now) - since the outer matrices aren't being squished down enough and cancellation happens while assembling H, S from layers?
 
 # -1.1744714437495383 # unsorted
 # -1.174470100748761 with sorted s0
 
+file = "SHlayers_t8_delta0.0_BO_rAB14_905_all.pkl"
+
 plot_Psi_Eloc_multi_params_from_files(
     file,
     xy_max=6.0,
     nx1=50,
-    plot_rAB_target=plotrAB,
-    zlim_eloc=(-1.22, -1.1),
-    # zlim_eloc=(-1.18, -1.17),
+    plot_rAB_target=14.0,
+    zlim_eloc=(-1.2, -0.9),
     rcond=1e-14,
+    alpha_text_init="0.5"
 )
 
 
